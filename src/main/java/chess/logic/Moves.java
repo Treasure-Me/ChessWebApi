@@ -3,7 +3,7 @@ package chess.logic;
 import java.util.HashMap;
 import java.util.Map;
 
-public class moves {
+public class Moves {
     private final String piece;
     private static final HashMap<String, Integer> fileToColumn =
             new HashMap<>(Map.of(
@@ -18,7 +18,7 @@ public class moves {
             ));
 
 
-    public moves(String piece){
+    public Moves(String piece){
         this.piece = piece;
     }
 

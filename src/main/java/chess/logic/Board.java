@@ -1,15 +1,15 @@
 package chess.logic;
 
-public class board {
+public class Board {
     private String[][] squares = new String[8][8];
     private String FENStringPosition;
 
-    public board(String FENStringPosition){
+    public Board(String FENStringPosition){
         this.FENStringPosition = FENStringPosition;
         initializeSquares();
     }
 
-    public board(){
+    public Board(){
         this.FENStringPosition = "PPPPPPPP/RNBQKBNR/8/8/8/8/pppppppp/rnbqkbnr w KQkq - 0 1";
         initializeSquares();
     }
@@ -19,26 +19,26 @@ public class board {
         String position = FENStringPosition.split(" ")[0];
         String[] ranks = position.split("/");
 
-        for (int j = 0; j < ranks.length; j++){
+        for (int j = 0; j < ranks.length; j++) {
             String rank = ranks[j];
-            for (int i = 0; i < rank.length(); i++){
-                try{
-                    int numberOfEmptySquares = Integer.parseInt(String.valueOf(rank.charAt(i)));
+            int fileIndex = 0; // column index (0–7)
 
-                    for (int x = i; x < i+numberOfEmptySquares; x++){
-                        if ((j + x) % 2 == 0) {
-//                            squares[j][x] = "⬜"+"  ";
-                            squares[j][x] = "o"+"  ";
+            for (int i = 0; i < rank.length(); i++) {
+                char c = rank.charAt(i);
+
+                if (Character.isDigit(c)) {
+                    int emptyCount = c - '0';
+                    for (int k = 0; k < emptyCount; k++) {
+                        if ((j + fileIndex) % 2 == 0) {
+                            squares[j][fileIndex] = "o ";  // light square
                         } else {
-//                            squares[j][x] = "⬛"+ "  ";
-                            squares[j][x] = "x"+"  ";
-
+                            squares[j][fileIndex] = "x ";  // dark square
                         }
+                        fileIndex++;
                     }
-
-                    i += numberOfEmptySquares - 1;
-                }catch (IllegalArgumentException e){
-                    squares[j][i] = String.valueOf(rank.charAt(i))+"  ";
+                } else {
+                    squares[j][fileIndex] = c + " ";
+                    fileIndex++;
                 }
             }
         }
@@ -74,11 +74,5 @@ public class board {
             }
             System.out.println();
         }
-    }
-
-    public static void main(String[] args) {
-        board b = new board("5k2/ppp5/4P3/3R3p/6P1/1K2Nr2/PP3P2/8 b - - 1 32");
-        b.printBoard();
-        System.out.println("Square e4: " + b.getSquare("e4"));
     }
 }
