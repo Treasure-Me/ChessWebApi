@@ -10,7 +10,7 @@ public class Board {
     }
 
     public Board(){
-        this.FENStringPosition = "PPPPPPPP/RNBQKBNR/8/8/8/8/pppppppp/rnbqkbnr w KQkq - 0 1";
+        this.FENStringPosition = "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w KQkq - 0 1";
         initializeSquares();
     }
 
@@ -48,12 +48,36 @@ public class Board {
         return FENStringPosition;
     }
 
+    public String[][] getSquares(){
+        return squares;
+    }
+
     // Look up a square name like "e4" and return its value
     public String getSquare(String square){
         if (square == null || square.length() != 2) {
             throw new IllegalArgumentException("Invalid square: " + square);
         }
 
+        Integer[] indexSquare = processFileAndRank(square);
+        String value = squares[indexSquare[1]][indexSquare[0]];
+
+        // Remove the space for clean piece identification
+        return value.trim();
+    }
+
+    public void setSquare(String square, String piece) {
+        square = square.toLowerCase();
+        Integer[] indexSquare = processFileAndRank(square);
+
+        // Add space back for consistent board storage
+        if (piece.length() == 1) {
+            squares[indexSquare[1]][indexSquare[0]] = piece + " ";
+        } else {
+            squares[indexSquare[1]][indexSquare[0]] = piece;
+        }
+    }
+
+    public Integer[] processFileAndRank(String square){
         char file = square.charAt(0);
         char rankChar = square.charAt(1);
 
@@ -64,7 +88,38 @@ public class Board {
             throw new IllegalArgumentException("Square out of bounds: " + square);
         }
 
-        return squares[row][col];
+        return new Integer[]{col, row};
+    }
+
+    public void setFENStringPosition(){
+        StringBuilder newFENString = new StringBuilder();
+
+        for (String[] rank: squares){
+            for (String square:rank){
+                newFENString.append(square.strip());
+            }
+            newFENString.append("/");
+        }
+
+        newFENString = new StringBuilder(newFENString.substring(0, newFENString.length() - 2));
+        String playerTurn = FENStringPosition.split(" ")[0];
+
+        if (playerTurn.equals("w")){
+            playerTurn = "b";
+        }else if (playerTurn.equals("b")){
+            playerTurn = "w";
+        }
+
+        int halfMoves = Integer.parseInt(FENStringPosition.split(" ")[4]);
+        int fullMoves = Integer.parseInt(FENStringPosition.split(" ")[5]);
+
+        newFENString.append(" ").append(playerTurn).append(" KQkq - ").append(halfMoves+1);
+
+        if (playerTurn.equals("b")){
+            newFENString.append(" ").append(fullMoves+1);
+        }
+
+        this.FENStringPosition = String.valueOf(newFENString);
     }
 
     public void printBoard() {
@@ -74,5 +129,6 @@ public class Board {
             }
             System.out.println();
         }
+        System.out.println();
     }
 }

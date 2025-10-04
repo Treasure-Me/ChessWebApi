@@ -5,6 +5,7 @@ import java.util.Map;
 
 public class Moves {
     private final String piece;
+    private Board board;
     private static final HashMap<String, Integer> fileToColumn =
             new HashMap<>(Map.of(
                     "a", 0,
@@ -17,18 +18,17 @@ public class Moves {
                     "h", 7
             ));
 
-
     public Moves(String piece){
         this.piece = piece;
     }
 
     private Integer[][] processMoves(String fromSquare, String toSquare){
         String fromSquareFileString = String.valueOf(fromSquare.charAt(0));
-        int fromSquareRank = Integer.parseInt(String.valueOf(fromSquare.charAt(1)));
+        int fromSquareRank = 8 - Integer.parseInt(String.valueOf(fromSquare.charAt(1))); // Fixed: convert to array index
         int fromSquareFile = fileToColumn.get(fromSquareFileString);
 
         String toSquareFileString = String.valueOf(toSquare.charAt(0));
-        int toSquareRank = Integer.parseInt(String.valueOf(toSquare.charAt(1)));
+        int toSquareRank = 8 - Integer.parseInt(String.valueOf(toSquare.charAt(1))); // Fixed: convert to array index
         int toSquareFile = fileToColumn.get(toSquareFileString);
 
         return new Integer[][]{{fromSquareRank, fromSquareFile},{toSquareRank, toSquareFile}};
@@ -67,7 +67,9 @@ public class Moves {
         int toSquareRank = processedMoves[1][0];
         int toSquareFile = processedMoves[1][1];
 
-        return (Math.abs(fromSquareFile - toSquareFile) == 3 && Math.abs(fromSquareRank-toSquareRank) == 1) || (Math.abs(fromSquareFile - toSquareFile) == 1 && Math.abs(fromSquareRank-toSquareRank) == 3);
+        int fileDiff = Math.abs(fromSquareFile - toSquareFile);
+        int rankDiff = Math.abs(fromSquareRank - toSquareRank);
+        return (fileDiff == 2 && rankDiff == 1) || (fileDiff == 1 && rankDiff == 2); // Fixed: correct knight L-shape
     }
 
     public boolean bishopMove(String fromSquare, String toSquare){
@@ -103,7 +105,8 @@ public class Moves {
         int toSquareRank = processedMoves[1][0];
         int toSquareFile = processedMoves[1][1];
 
-        return (fromSquareFile-toSquareFile == 0 && toSquareRank != fromSquareRank) || (fromSquareFile-toSquareFile != 0 && toSquareRank == fromSquareRank);
+        return (fromSquareFile == toSquareFile && fromSquareRank != toSquareRank) ||
+                (fromSquareFile != toSquareFile && fromSquareRank == toSquareRank); // Simplified
     }
 
     public boolean kingMove(String fromSquare, String toSquare){
@@ -121,10 +124,12 @@ public class Moves {
         int toSquareRank = processedMoves[1][0];
         int toSquareFile = processedMoves[1][1];
 
-        return (Math.abs(fromSquareFile-toSquareFile) == 1 && Math.abs(fromSquareRank-toSquareRank) == 1) || (Math.abs(fromSquareRank-toSquareRank) == 1 && Math.abs(fromSquareFile-toSquareFile) == 0) || (Math.abs(fromSquareRank-toSquareRank) == 0 && Math.abs(fromSquareFile-toSquareFile) == 1);
+        int fileDiff = Math.abs(fromSquareFile - toSquareFile);
+        int rankDiff = Math.abs(fromSquareRank - toSquareRank);
+        return fileDiff <= 1 && rankDiff <= 1 && !(fileDiff == 0 && rankDiff == 0); // Fixed: simplified king movement
     }
 
-    public boolean pawnMove(String fromSquare,  String toSquare){
+    public boolean pawnMove(String fromSquare, String toSquare){
 
         if (!piece.equalsIgnoreCase("p")){
             return false;
@@ -139,10 +144,29 @@ public class Moves {
         int toSquareRank = processedMoves[1][0];
         int toSquareFile = processedMoves[1][1];
 
-        if (piece.equals("P")){
-            return (fromSquareFile-toSquareFile == 1);
-        } else if (piece.equals("p")) {
-            return (fromSquareFile-toSquareFile == -1);
+        int fileDiff = Math.abs(fromSquareFile - toSquareFile);
+        int rankDiff = fromSquareRank - toSquareRank; // Positive for white, negative for black
+
+        if (piece.equals("P")){ // White pawn
+            // Forward move (1 or 2 squares from starting position)
+            if (fileDiff == 0 && toSquareFile == fromSquareFile) {
+                if (rankDiff == 1) {
+                    return true; // Single square forward
+                } else if (rankDiff == 2 && fromSquareRank == 6) {
+                    return true; // Double square from starting position
+                }
+            }
+            // TODO: Add capture logic and en passant
+        } else if (piece.equals("p")) { // Black pawn
+            // Forward move (1 or 2 squares from starting position)
+            if (fileDiff == 0 && toSquareFile == fromSquareFile) {
+                if (rankDiff == -1) {
+                    return true; // Single square forward
+                } else if (rankDiff == -2 && fromSquareRank == 1) {
+                    return true; // Double square from starting position
+                }
+            }
+            // TODO: Add capture logic and en passant
         }
 
         return false;
