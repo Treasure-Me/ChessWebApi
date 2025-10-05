@@ -1,5 +1,7 @@
 package chess.logic;
 
+import java.util.Objects;
+
 public class Board {
     private String[][] squares = new String[8][8];
     private String FENStringPosition;
@@ -91,35 +93,77 @@ public class Board {
         return new Integer[]{col, row};
     }
 
-    public void setFENStringPosition(){
+    public void setFENStringPosition() {
         StringBuilder newFENString = new StringBuilder();
 
-        for (String[] rank: squares){
-            for (String square:rank){
-                newFENString.append(square.strip());
+        for (int row = 7; row >= 0; row--) { // FEN starts from rank 8 (top)
+            String[] rank = squares[row];
+            int emptyCount = 0;
+
+            for (String square : rank) {
+                String piece = square.trim(); // Remove any spaces
+
+                if (piece.equals("x") || piece.equals("o") || piece.equals("")) {
+                    emptyCount++;
+                } else {
+                    if (emptyCount > 0) {
+                        newFENString.append(emptyCount);
+                        emptyCount = 0;
+                    }
+                    newFENString.append(piece);
+                }
             }
-            newFENString.append("/");
+
+            // Add any remaining empty squares at the end of the rank
+            if (emptyCount > 0) {
+                newFENString.append(emptyCount);
+            }
+
+            // Add rank separator (but not after the last rank)
+            if (row > 0) {
+                newFENString.append("/");
+            }
         }
 
-        newFENString = new StringBuilder(newFENString.substring(0, newFENString.length() - 2));
-        String playerTurn = FENStringPosition.split(" ")[0];
+        // Update game state information
+        String[] fenParts = FENStringPosition.split(" ");
+        String currentTurn = fenParts[1];
+        String nextTurn = currentTurn.equals("w") ? "b" : "w";
 
-        if (playerTurn.equals("w")){
-            playerTurn = "b";
-        }else if (playerTurn.equals("b")){
-            playerTurn = "w";
+        // Handle move counters more carefully
+        int halfMoves = 0;
+        int fullMoves = 1;
+
+        try {
+            if (fenParts.length > 4) {
+                halfMoves = Integer.parseInt(fenParts[4]);
+            }
+            if (fenParts.length > 5) {
+                fullMoves = Integer.parseInt(fenParts[5]);
+            }
+        } catch (NumberFormatException e) {
+            // Use defaults if parsing fails
         }
 
-        int halfMoves = Integer.parseInt(FENStringPosition.split(" ")[4]);
-        int fullMoves = Integer.parseInt(FENStringPosition.split(" ")[5]);
+        // Increment halfmove clock (resets on captures/pawn moves - you'll need to add this logic)
+        halfMoves++;
 
-        newFENString.append(" ").append(playerTurn).append(" KQkq - ").append(halfMoves+1);
-
-        if (playerTurn.equals("b")){
-            newFENString.append(" ").append(fullMoves+1);
+        // Increment fullmove counter only after black moves
+        if (currentTurn.equals("b")) {
+            fullMoves++;
         }
 
-        this.FENStringPosition = String.valueOf(newFENString);
+        // Rebuild the FEN string
+        StringBuilder finalFEN = new StringBuilder();
+        finalFEN.append(newFENString)
+                .append(" ").append(nextTurn)
+                .append(" ").append(fenParts.length > 2 ? fenParts[2] : "-") // Castling rights
+                .append(" ").append(fenParts.length > 3 ? fenParts[3] : "-") // En passant
+                .append(" ").append(halfMoves)
+                .append(" ").append(fullMoves);
+
+        this.FENStringPosition = finalFEN.toString();
+        System.out.println("New FEN: " + FENStringPosition);
     }
 
     public void printBoard() {

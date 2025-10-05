@@ -34,9 +34,9 @@ public class ChessGame {
         Scanner scanner = new Scanner(System.in);
 
         if (playerTurn.equals("w")) {
-            System.out.println("Whites turn. Play a move (e.g: a1-a6):");
+            System.out.println("Whites turn. Play a move (e.g: e2-e4):");
         } else if (playerTurn.equals("b")) {
-            System.out.println("Blacks turn. Play a move (e.g: a1-a6):");
+            System.out.println("Blacks turn. Play a move (e.g: e7-e5):");
         }
 
         String move = scanner.nextLine();
@@ -61,7 +61,16 @@ public class ChessGame {
             return;
         }
 
-        System.out.println(piece + ":" + fromSquare + ":" + toSquare);
+        if (!(piece.toLowerCase().equals(piece) || playerTurn.equals("w"))){
+            System.out.println("Wrong piece selected! Select white pieces.");
+            playGame(board);
+        } else if (!(piece.toUpperCase().equals(piece) || playerTurn.equals("b"))) {
+            System.out.println("Wrong piece selected! Select black pieces.");
+            playGame(board);
+        }
+
+
+        System.out.println(piece + ":" + fromSquare + "=>" + toSquare);
         Moves moves = new Moves(piece);
 
         if (identifyPlayPiece(piece, moves, fromSquare, toSquare)) {
@@ -74,15 +83,16 @@ public class ChessGame {
                 playGame(board);
             }
 
-            Integer[] squareList = board.processFileAndRank(toSquare);
+            Integer[] squareList = board.processFileAndRank(fromSquare);
             if ((squareList[0] + squareList[1])%2 == 0){
-                board.setSquare(fromSquare, "x");
-            }else{
                 board.setSquare(fromSquare, "o");
+            }else{
+                board.setSquare(fromSquare, "x");
             }
             board.setSquare(toSquare, piece);
 
             // Continue the game with next turn
+            board.setFENStringPosition();
             playGame(board);
         } else {
             System.out.println("Invalid move. Try again.");
@@ -105,7 +115,7 @@ public class ChessGame {
                 board = new Board();
                 playGame(board);
             } else if (choice == 2) {
-                System.out.println("Enter FEN-string. Carefully enter string to avoid improper result:");
+                System.out.println("Enter FEN-string (e.g: 2rq1rk1/4ppbp/6p1/3pP3/2pP4/2P1BN2/3QKP1P/RR4RK b - - 0 18). Carefully enter string to avoid improper result:");
                 String FENString = scanner.nextLine(); // Use same scanner
                 board = new Board(FENString);
                 playGame(board);
