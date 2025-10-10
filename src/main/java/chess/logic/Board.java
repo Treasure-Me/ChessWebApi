@@ -1,10 +1,21 @@
 package chess.logic;
 
-import java.util.Objects;
+import java.util.*;
 
 public class Board {
     private String[][] squares = new String[8][8];
     private String FENStringPosition;
+    private static final HashMap<String, Integer> fileToColumn =
+            new HashMap<>(Map.of(
+                    "a", 0,
+                    "b", 1,
+                    "c", 2,
+                    "d", 3,
+                    "e", 4,
+                    "f", 5,
+                    "g", 6,
+                    "h", 7
+            ));
 
     public Board(String FENStringPosition){
         this.FENStringPosition = FENStringPosition;
@@ -164,6 +175,23 @@ public class Board {
 
         this.FENStringPosition = finalFEN.toString();
         System.out.println("New FEN: " + FENStringPosition);
+    }
+
+    public ArrayList<String> getPiecePositions(String piece){
+        ArrayList<String> positions = new ArrayList<>();
+
+        for (int i = 0; i < squares.length; i++) {
+            for (int j = 0; j < squares[i].length; j++) {
+                if ((squares[i][j]).strip().equals(piece)) {
+                    for (String letter:fileToColumn.keySet()){
+                        if (fileToColumn.get(letter).equals(j)){
+                            positions.add(letter+(i+1));
+                        }
+                    }
+                }
+            }
+        }
+        return positions;
     }
 
     public void printBoard() {
