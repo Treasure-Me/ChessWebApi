@@ -39,7 +39,6 @@ public class PGNToSQLConverter {
     }
 
     private static void initializeDatabase(String dbUrl) {
-        // Use the exact schema you requested for SQLite
         String createTableSQL = """
             CREATE TABLE IF NOT EXISTS chess_games (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,35 +91,63 @@ public class PGNToSQLConverter {
     private static List<ChessGame> parsePGNFile(String filePath) throws IOException {
         List<ChessGame> games = new ArrayList<>();
 
-        // Try different encodings
         String content = readFileWithFallbackEncoding(filePath);
 
         if (content == null) {
-            throw new IOException("Could not read file with any encoding. File may be corrupted.");
+            throw new IOException("Could not read file with any encoding.");
         }
 
-        // Split content into individual games
-        String[] rawGames = content.split("\\n\\s*\\n\\s*\\n");
+        System.out.println("File size: " + content.length() + " characters");
 
-        System.out.println("Found " + rawGames.length + " potential game sections");
+        // FIX: Manual parsing - look for "[Event " patterns
+        Pattern gameStartPattern = Pattern.compile("\\[Event \"[^\"]*\"\\]");
+        Matcher matcher = gameStartPattern.matcher(content);
 
-        for (int i = 0; i < rawGames.length; i++) {
-            String rawGame = rawGames[i].trim();
-            if (rawGame.isEmpty()) continue;
+        List<String> rawGames = new ArrayList<>();
+        int lastEnd = 0;
+
+        while (matcher.find()) {
+            if (matcher.start() > lastEnd) {
+                String gameText = content.substring(lastEnd, matcher.start()).trim();
+                if (!gameText.isEmpty()) {
+                    rawGames.add(gameText);
+                }
+            }
+            lastEnd = matcher.start();
+        }
+
+        // Add the last game
+        if (lastEnd < content.length()) {
+            String lastGame = content.substring(lastEnd).trim();
+            if (!lastGame.isEmpty()) {
+                rawGames.add(lastGame);
+            }
+        }
+
+        System.out.println("Found " + rawGames.size() + " potential game sections");
+
+        int validGames = 0;
+        for (int i = 0; i < rawGames.size(); i++) {
+            String rawGame = rawGames.get(i);
 
             try {
                 ChessGame game = parseSingleGame(rawGame);
                 if (game != null && isValidGame(game)) {
                     games.add(game);
-                    if (games.size() % 100 == 0) {
-                        System.out.println("Parsed " + games.size() + " games so far...");
+                    validGames++;
+
+                    if (validGames % 100 == 0) {
+                        System.out.println("Parsed " + validGames + " valid games so far...");
                     }
                 }
             } catch (Exception e) {
-                System.err.println("Failed to parse game " + (i + 1) + ": " + e.getMessage());
+                if (i < 5) {
+                    System.err.println("Failed to parse game " + (i + 1) + ": " + e.getMessage());
+                }
             }
         }
 
+        System.out.println("Total valid games parsed: " + validGames + " out of " + rawGames.size() + " sections");
         return games;
     }
 
@@ -149,15 +176,18 @@ public class PGNToSQLConverter {
         StringBuilder movesBuilder = new StringBuilder();
         String[] lines = gameText.split("\\r?\\n");
         boolean inMoveSection = false;
+        boolean hasHeaders = false;
 
         for (String line : lines) {
             line = line.trim();
             if (line.isEmpty()) continue;
 
             if (line.startsWith("[")) {
+                // Header line
                 parseHeader(line, game);
+                hasHeaders = true;
             } else {
-                // Clean the line of any non-printable characters
+                // Move section - clean the line
                 line = line.replaceAll("[^\\x20-\\x7E]", "").trim();
                 if (!line.isEmpty()) {
                     movesBuilder.append(line).append(" ");
@@ -166,10 +196,23 @@ public class PGNToSQLConverter {
             }
         }
 
-        if (inMoveSection) {
+        if (inMoveSection && hasHeaders) {
             String movesText = cleanMoves(movesBuilder.toString());
             game.setMovesText(movesText);
             game.setMoveCount(countMoves(movesText));
+
+            // Set default values if missing
+            if (game.getEvent() == null || game.getEvent().equals("Unknown")) {
+                game.setEvent("Unknown Event");
+            }
+            if (game.getWhitePlayer() == null || game.getWhitePlayer().equals("Unknown")) {
+                game.setWhitePlayer("Unknown Player");
+            }
+            if (game.getBlackPlayer() == null || game.getBlackPlayer().equals("Unknown")) {
+                game.setBlackPlayer("Unknown Player");
+            }
+        } else {
+            return null; // Invalid game - no moves or no headers
         }
 
         return game;
@@ -177,16 +220,20 @@ public class PGNToSQLConverter {
 
     private static int countMoves(String moves) {
         if (moves == null || moves.trim().isEmpty()) return 0;
-        return moves.trim().split("\\s+").length;
+        // Count moves by splitting on spaces and filtering out empty strings
+        return (int) Arrays.stream(moves.trim().split("\\s+"))
+                .filter(move -> !move.isEmpty())
+                .count();
     }
 
     private static boolean isValidGame(ChessGame game) {
         return game.getWhitePlayer() != null &&
-                !game.getWhitePlayer().equals("Unknown") &&
+                !game.getWhitePlayer().equals("Unknown Player") &&
                 game.getBlackPlayer() != null &&
-                !game.getBlackPlayer().equals("Unknown") &&
+                !game.getBlackPlayer().equals("Unknown Player") &&
                 game.getMovesText() != null &&
-                !game.getMovesText().trim().isEmpty();
+                !game.getMovesText().trim().isEmpty() &&
+                game.getMoveCount() > 0;
     }
 
     private static void parseHeader(String line, ChessGame game) {
@@ -212,22 +259,20 @@ public class PGNToSQLConverter {
     }
 
     private static String cleanMoves(String movesText) {
-        // Remove move numbers
+        // Remove move numbers (like "1." "2." etc.)
         String cleaned = MOVE_NUMBER_PATTERN.matcher(movesText).replaceAll("");
 
-        // Remove result at the end
+        // Remove result indicators
         for (String result : RESULTS) {
-            if (cleaned.endsWith(result)) {
-                cleaned = cleaned.substring(0, cleaned.length() - result.length()).trim();
-                break;
-            }
+            cleaned = cleaned.replace(result, "");
         }
 
         // Remove annotations and comments
         cleaned = cleaned.replaceAll("\\{.*?\\}", "")  // {comments}
-                .replaceAll("\\$\\d+", "")     // $1, $2 NAGs
+                .replaceAll("\\$\\d+", "")     // NAG codes ($1, $2, etc.)
                 .replaceAll("[?!]+", "")       // !, ?, !!, ??
-                .replaceAll("\\s+", " ")       // Multiple spaces
+                .replaceAll("\\(.*?\\)", "")   // Variations in parentheses
+                .replaceAll("\\s+", " ")       // Multiple spaces to single space
                 .trim();
 
         return cleaned;
@@ -242,7 +287,6 @@ public class PGNToSQLConverter {
     }
 
     private static void saveGamesToDatabase(List<ChessGame> games, String dbUrl) {
-        // Updated SQL to match your schema exactly
         String sql = """
             INSERT INTO chess_games 
             (event, site, game_date, round, white_player, black_player, result, white_elo, black_elo, eco, opening, moves_text, move_count)
@@ -285,13 +329,13 @@ public class PGNToSQLConverter {
                 // Execute in batches to avoid memory issues
                 if (batchCount % 100 == 0) {
                     stmt.executeBatch();
-                    System.out.println("Processed " + batchCount + " games...");
+                    System.out.println("Saved " + batchCount + " games to database...");
                 }
             }
 
             // Execute remaining batch
             int[] results = stmt.executeBatch();
-            System.out.println("Inserted " + results.length + " games into database.");
+            System.out.println("Successfully inserted " + results.length + " games into database.");
 
         } catch (SQLException e) {
             System.err.println("Database error: " + e.getMessage());
@@ -299,14 +343,14 @@ public class PGNToSQLConverter {
         }
     }
 
-    // Updated ChessGame data class to match your schema
+    // ChessGame data class
     static class ChessGame {
         private String event = "Unknown";
         private String site = "Unknown";
         private String gameDate = "????.??.??";
         private String round = "?";
-        private String whitePlayer = "Unknown";
-        private String blackPlayer = "Unknown";
+        private String whitePlayer = "Unknown Player";
+        private String blackPlayer = "Unknown Player";
         private String result = "*";
         private Integer whiteElo;
         private Integer blackElo;
