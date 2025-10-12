@@ -1,6 +1,7 @@
 package PGNToSQL;
 
 import java.io.*;
+import java.nio.charset.*;
 import java.nio.file.*;
 import java.sql.*;
 import java.util.*;
@@ -13,21 +14,23 @@ public class PGNToSQLConverter {
     private static final Set<String> RESULTS = Set.of("1-0", "0-1", "1/2-1/2", "*");
 
     public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        String pgnFilePath;
+
         if (args.length < 1) {
-            System.out.println("Usage: java PGNToSQLConverter <pgn-file-path>");
-            return;
+            System.out.println("Enter the PGN file path:");
+            pgnFilePath = scanner.nextLine().trim();
+        } else {
+            pgnFilePath = args[0];
         }
 
-        String pgnFilePath = args[0];
-        String dbUrl = "jdbc:mysql://localhost:3306/chessdb";
-        String user = "username"; // Change this
-        String password = "password"; // Change this
+        String dbUrl = "jdbc:sqlite:chess-games.db";
 
-        initializeDatabase(dbUrl, user, password);
+        initializeDatabase(dbUrl);
 
         try {
             List<ChessGame> games = parsePGNFile(pgnFilePath);
-            saveGamesToDatabase(games, dbUrl, user, password);
+            saveGamesToDatabase(games, dbUrl);
             System.out.println("Successfully processed " + games.size() + " games.");
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
@@ -35,28 +38,51 @@ public class PGNToSQLConverter {
         }
     }
 
-    private static void initializeDatabase(String dbUrl, String user, String password) {
+    private static void initializeDatabase(String dbUrl) {
+        // Use the exact schema you requested for SQLite
         String createTableSQL = """
             CREATE TABLE IF NOT EXISTS chess_games (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                event VARCHAR(255),
-                site VARCHAR(255),
-                date VARCHAR(50),
-                round VARCHAR(50),
-                white_player VARCHAR(255),
-                black_player VARCHAR(255),
-                result VARCHAR(10),
-                white_elo INT,
-                black_elo INT,
-                eco VARCHAR(10),
-                moves TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 event TEXT,
+                 site TEXT,
+                 game_date TEXT,
+                 round TEXT,
+                 white_player TEXT NOT NULL,
+                 black_player TEXT NOT NULL,
+                 white_elo INTEGER,
+                 black_elo INTEGER,
+                 result TEXT NOT NULL,
+                 eco TEXT,
+                 opening TEXT,
+                 moves_text TEXT NOT NULL,
+                 move_count INTEGER DEFAULT 0,
+                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """;
 
-        try (Connection conn = DriverManager.getConnection(dbUrl, user, password);
+        try (Connection conn = DriverManager.getConnection(dbUrl);
              Statement stmt = conn.createStatement()) {
             stmt.execute(createTableSQL);
+            System.out.println("Database table created successfully.");
+
+            // Create indexes
+            String[] indexSQLs = {
+                    "CREATE INDEX IF NOT EXISTS idx_players ON chess_games(white_player, black_player)",
+                    "CREATE INDEX IF NOT EXISTS idx_result ON chess_games(result)",
+                    "CREATE INDEX IF NOT EXISTS idx_eco ON chess_games(eco)",
+                    "CREATE INDEX IF NOT EXISTS idx_date ON chess_games(game_date)",
+                    "CREATE INDEX IF NOT EXISTS idx_white_elo ON chess_games(white_elo)",
+                    "CREATE INDEX IF NOT EXISTS idx_black_elo ON chess_games(black_elo)"
+            };
+
+            for (String indexSQL : indexSQLs) {
+                try {
+                    stmt.execute(indexSQL);
+                } catch (SQLException e) {
+                    System.out.println("Index already exists or couldn't be created: " + e.getMessage());
+                }
+            }
+
             System.out.println("Database initialized successfully.");
         } catch (SQLException e) {
             System.err.println("Failed to initialize database: " + e.getMessage());
@@ -65,27 +91,63 @@ public class PGNToSQLConverter {
 
     private static List<ChessGame> parsePGNFile(String filePath) throws IOException {
         List<ChessGame> games = new ArrayList<>();
-        String content = Files.readString(Paths.get(filePath));
 
-        // Split content into individual games (separated by empty lines)
+        // Try different encodings
+        String content = readFileWithFallbackEncoding(filePath);
+
+        if (content == null) {
+            throw new IOException("Could not read file with any encoding. File may be corrupted.");
+        }
+
+        // Split content into individual games
         String[] rawGames = content.split("\\n\\s*\\n\\s*\\n");
 
-        for (String rawGame : rawGames) {
-            if (rawGame.trim().isEmpty()) continue;
+        System.out.println("Found " + rawGames.length + " potential game sections");
 
-            ChessGame game = parseSingleGame(rawGame);
-            if (game != null) {
-                games.add(game);
+        for (int i = 0; i < rawGames.length; i++) {
+            String rawGame = rawGames[i].trim();
+            if (rawGame.isEmpty()) continue;
+
+            try {
+                ChessGame game = parseSingleGame(rawGame);
+                if (game != null && isValidGame(game)) {
+                    games.add(game);
+                    if (games.size() % 100 == 0) {
+                        System.out.println("Parsed " + games.size() + " games so far...");
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Failed to parse game " + (i + 1) + ": " + e.getMessage());
             }
         }
 
         return games;
     }
 
+    private static String readFileWithFallbackEncoding(String filePath) {
+        Charset[] charsets = {
+                StandardCharsets.UTF_8,
+                StandardCharsets.ISO_8859_1,
+                Charset.forName("Windows-1252"),
+                StandardCharsets.US_ASCII
+        };
+
+        for (Charset charset : charsets) {
+            try {
+                System.out.println("Trying encoding: " + charset.name());
+                byte[] bytes = Files.readAllBytes(Paths.get(filePath));
+                return new String(bytes, charset);
+            } catch (Exception e) {
+                System.out.println("Failed with " + charset.name() + ": " + e.getMessage());
+            }
+        }
+        return null;
+    }
+
     private static ChessGame parseSingleGame(String gameText) {
         ChessGame game = new ChessGame();
         StringBuilder movesBuilder = new StringBuilder();
-        String[] lines = gameText.split("\\n");
+        String[] lines = gameText.split("\\r?\\n");
         boolean inMoveSection = false;
 
         for (String line : lines) {
@@ -93,28 +155,38 @@ public class PGNToSQLConverter {
             if (line.isEmpty()) continue;
 
             if (line.startsWith("[")) {
-                // Parse header
                 parseHeader(line, game);
             } else {
-                // Move section
-                if (!inMoveSection) {
+                // Clean the line of any non-printable characters
+                line = line.replaceAll("[^\\x20-\\x7E]", "").trim();
+                if (!line.isEmpty()) {
+                    movesBuilder.append(line).append(" ");
                     inMoveSection = true;
                 }
-                movesBuilder.append(line).append(" ");
             }
         }
 
-        String movesText = movesBuilder.toString().trim();
-        if (!movesText.isEmpty()) {
-            game.setMoves(cleanMoves(movesText));
-        }
-
-        // Validate that we have at least players and moves
-        if (game.getWhitePlayer() == null || game.getBlackPlayer() == null || game.getMoves() == null) {
-            return null; // Skip invalid games
+        if (inMoveSection) {
+            String movesText = cleanMoves(movesBuilder.toString());
+            game.setMovesText(movesText);
+            game.setMoveCount(countMoves(movesText));
         }
 
         return game;
+    }
+
+    private static int countMoves(String moves) {
+        if (moves == null || moves.trim().isEmpty()) return 0;
+        return moves.trim().split("\\s+").length;
+    }
+
+    private static boolean isValidGame(ChessGame game) {
+        return game.getWhitePlayer() != null &&
+                !game.getWhitePlayer().equals("Unknown") &&
+                game.getBlackPlayer() != null &&
+                !game.getBlackPlayer().equals("Unknown") &&
+                game.getMovesText() != null &&
+                !game.getMovesText().trim().isEmpty();
     }
 
     private static void parseHeader(String line, ChessGame game) {
@@ -126,7 +198,7 @@ public class PGNToSQLConverter {
             switch (key.toUpperCase()) {
                 case "EVENT" -> game.setEvent(value);
                 case "SITE" -> game.setSite(value);
-                case "DATE" -> game.setDate(value);
+                case "DATE" -> game.setGameDate(value);
                 case "ROUND" -> game.setRound(value);
                 case "WHITE" -> game.setWhitePlayer(value);
                 case "BLACK" -> game.setBlackPlayer(value);
@@ -134,6 +206,7 @@ public class PGNToSQLConverter {
                 case "WHITEELO" -> game.setWhiteElo(parseIntSafe(value));
                 case "BLACKELO" -> game.setBlackElo(parseIntSafe(value));
                 case "ECO" -> game.setEco(value);
+                case "OPENING" -> game.setOpening(value);
             }
         }
     }
@@ -168,20 +241,22 @@ public class PGNToSQLConverter {
         }
     }
 
-    private static void saveGamesToDatabase(List<ChessGame> games, String dbUrl, String user, String password) {
+    private static void saveGamesToDatabase(List<ChessGame> games, String dbUrl) {
+        // Updated SQL to match your schema exactly
         String sql = """
             INSERT INTO chess_games 
-            (event, site, date, round, white_player, black_player, result, white_elo, black_elo, eco, moves)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (event, site, game_date, round, white_player, black_player, result, white_elo, black_elo, eco, opening, moves_text, move_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
-        try (Connection conn = DriverManager.getConnection(dbUrl, user, password);
+        try (Connection conn = DriverManager.getConnection(dbUrl);
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
+            int batchCount = 0;
             for (ChessGame game : games) {
                 stmt.setString(1, game.getEvent());
                 stmt.setString(2, game.getSite());
-                stmt.setString(3, game.getDate());
+                stmt.setString(3, game.getGameDate());
                 stmt.setString(4, game.getRound());
                 stmt.setString(5, game.getWhitePlayer());
                 stmt.setString(6, game.getBlackPlayer());
@@ -200,11 +275,21 @@ public class PGNToSQLConverter {
                 }
 
                 stmt.setString(10, game.getEco());
-                stmt.setString(11, game.getMoves());
+                stmt.setString(11, game.getOpening());
+                stmt.setString(12, game.getMovesText());
+                stmt.setInt(13, game.getMoveCount());
 
                 stmt.addBatch();
+                batchCount++;
+
+                // Execute in batches to avoid memory issues
+                if (batchCount % 100 == 0) {
+                    stmt.executeBatch();
+                    System.out.println("Processed " + batchCount + " games...");
+                }
             }
 
+            // Execute remaining batch
             int[] results = stmt.executeBatch();
             System.out.println("Inserted " + results.length + " games into database.");
 
@@ -214,11 +299,11 @@ public class PGNToSQLConverter {
         }
     }
 
-    // ChessGame data class
+    // Updated ChessGame data class to match your schema
     static class ChessGame {
         private String event = "Unknown";
         private String site = "Unknown";
-        private String date = "????.??.??";
+        private String gameDate = "????.??.??";
         private String round = "?";
         private String whitePlayer = "Unknown";
         private String blackPlayer = "Unknown";
@@ -226,40 +311,36 @@ public class PGNToSQLConverter {
         private Integer whiteElo;
         private Integer blackElo;
         private String eco;
-        private String moves;
+        private String opening;
+        private String movesText;
+        private int moveCount = 0;
 
         // Getters and setters
         public String getEvent() { return event; }
         public void setEvent(String event) { this.event = event; }
-
         public String getSite() { return site; }
         public void setSite(String site) { this.site = site; }
-
-        public String getDate() { return date; }
-        public void setDate(String date) { this.date = date; }
-
+        public String getGameDate() { return gameDate; }
+        public void setGameDate(String gameDate) { this.gameDate = gameDate; }
         public String getRound() { return round; }
         public void setRound(String round) { this.round = round; }
-
         public String getWhitePlayer() { return whitePlayer; }
         public void setWhitePlayer(String whitePlayer) { this.whitePlayer = whitePlayer; }
-
         public String getBlackPlayer() { return blackPlayer; }
         public void setBlackPlayer(String blackPlayer) { this.blackPlayer = blackPlayer; }
-
         public String getResult() { return result; }
         public void setResult(String result) { this.result = result; }
-
         public Integer getWhiteElo() { return whiteElo; }
         public void setWhiteElo(Integer whiteElo) { this.whiteElo = whiteElo; }
-
         public Integer getBlackElo() { return blackElo; }
         public void setBlackElo(Integer blackElo) { this.blackElo = blackElo; }
-
         public String getEco() { return eco; }
         public void setEco(String eco) { this.eco = eco; }
-
-        public String getMoves() { return moves; }
-        public void setMoves(String moves) { this.moves = moves; }
+        public String getOpening() { return opening; }
+        public void setOpening(String opening) { this.opening = opening; }
+        public String getMovesText() { return movesText; }
+        public void setMovesText(String movesText) { this.movesText = movesText; }
+        public int getMoveCount() { return moveCount; }
+        public void setMoveCount(int moveCount) { this.moveCount = moveCount; }
     }
 }

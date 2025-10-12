@@ -203,4 +203,10 @@ public class Board {
         }
         System.out.println();
     }
+
+    public boolean gameOver() {
+        int black = 1000;
+        int white = -1000;
+        return false;
+    }
 }
