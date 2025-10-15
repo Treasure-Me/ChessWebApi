@@ -1,16 +1,12 @@
 package chess.logic;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Scanner;
+import java.util.*;
 
 public class ChessGame {
     private static final ArrayList<String> blackPieces = new ArrayList<>(List.of("r","n","k","q","p","b"));
     private static final ArrayList<String> whitePieces = new ArrayList<>(List.of("R","N","K","Q","P","B"));
 
     private static boolean identifyPlayPiece(String piece, Moves moves, String fromSquare, String toSquare) {
-        System.out.println("here3");
         if (piece.equals("P")) {
             return moves.pawnMove(fromSquare, toSquare);
         }
@@ -21,7 +17,7 @@ public class ChessGame {
             case "b" -> moves.bishopMove(fromSquare, toSquare);
             case "r" -> moves.rookMove(fromSquare, toSquare);
             case "q" -> moves.queenMove(fromSquare, toSquare);
-            case "n" -> moves.knightMove(fromSquare, toSquare); // Added missing knight case
+            case "n" -> moves.knightMove(fromSquare, toSquare);
             default -> false;
         };
     }
@@ -42,19 +38,41 @@ public class ChessGame {
         return false;
     }
 
+    private static boolean isMate(String playerTurn, String kingPosition, Board board){
+        ArrayList<String> piecesIterated = new ArrayList<>();
+
+        if (!inCheck(board, kingPosition)){
+            return false;
+        }
+        ArrayList<String> playerPieces = Objects.equals(playerTurn, "w")? whitePieces:blackPieces;
+
+        for (String piece:playerPieces){
+
+
+            if (!piecesIterated.contains(piece)){
+                piecesIterated.add(piece);
+            }
+        }
+        return false;
+    }
+
     private static void playGame(Board board) {
         board.printBoard();
         String playerTurn = board.getFENStringPosition().split(" ")[1];
         Scanner scanner = new Scanner(System.in);
         String kingPosition = "";
 
+        // Get king position for current player
         if (playerTurn.equals("b")){
             ArrayList<String> positions = board.getPiecePositions("k");
-            kingPosition = positions.getFirst();
+            if (!positions.isEmpty()) {
+                kingPosition = positions.getFirst();
+            }
         } else if (playerTurn.equals("w")) {
             ArrayList<String> positions = board.getPiecePositions("K");
-            System.out.println(positions);
-            kingPosition = positions.getFirst();
+            if (!positions.isEmpty()) {
+                kingPosition = positions.getFirst();
+            }
         }
 
         if (playerTurn.equals("w")) {
@@ -70,7 +88,6 @@ public class ChessGame {
             }else if (playerTurn.equals("b")){
                 System.out.println("Black resigns. White is victorious.");
             }
-
             return;
         }
 
@@ -89,43 +106,60 @@ public class ChessGame {
         String piece = board.getSquare(fromSquare);
 
         // Check if there's actually a piece on the fromSquare
-        if (piece == null || piece.equals(" ")) {
+        if (piece == null || piece.equals(" ") || piece.equals("o") || piece.equals("x")) {
             System.out.println("No piece at " + fromSquare + ". Try again.");
             playGame(board);
             return;
         }
 
-        if (!(piece.toLowerCase().equals(piece) || playerTurn.equals("w"))){
+        // Validate piece color matches player turn
+        if (playerTurn.equals("w") && !piece.equals(piece.toUpperCase())) {
             System.out.println("Wrong piece selected! Select white pieces.");
             playGame(board);
-        } else if (!(piece.toUpperCase().equals(piece) || playerTurn.equals("b"))) {
+            return;
+        } else if (playerTurn.equals("b") && !piece.equals(piece.toLowerCase())) {
             System.out.println("Wrong piece selected! Select black pieces.");
             playGame(board);
+            return;
         }
-
 
         System.out.println(piece + ":" + fromSquare + "->" + toSquare);
         Moves moves = new Moves(piece, board);
-        System.out.println("here1");
+
         if (identifyPlayPiece(piece, moves, fromSquare, toSquare)) {
-            System.out.println("here2");
             String atToSquare = board.getSquare(toSquare);
 
-            if (piece.toLowerCase().equals(piece) && blackPieces.contains(atToSquare)){
+            // Check for capturing own pieces
+            if (playerTurn.equals("w") && whitePieces.contains(atToSquare)) {
                 System.out.println("Cannot capture your own piece");
                 playGame(board);
-            } else if (piece.toUpperCase().equals(piece) && whitePieces.contains(atToSquare)) {
+                return;
+            } else if (playerTurn.equals("b") && blackPieces.contains(atToSquare)) {
                 System.out.println("Cannot capture your own piece");
                 playGame(board);
+                return;
             }
 
+            // Store the piece that was at the destination (for capture)
+            String capturedPiece = atToSquare;
+
+            // Make the move
             makeMove(fromSquare, toSquare, board, piece);
 
-            if (inCheck(board, kingPosition)){
-                String player = playerTurn.equals("w") ? "White": "Black";
-                System.out.println(player+" in check.");
-                makeMove(toSquare, fromSquare, board, piece);
+            // Update king position if king moved
+            if (piece.equalsIgnoreCase("k")) {
+                kingPosition = toSquare;
+            }
+
+            // Check if move puts own king in check
+            if (inCheck(board, kingPosition)) {
+                String player = playerTurn.equals("w") ? "White" : "Black";
+                System.out.println(player + " in check. Move illegal.");
+
+                // Undo the move
+                undoMove(fromSquare, toSquare, board, piece, capturedPiece);
                 playGame(board);
+                return;
             }
 
             // Continue the game with next turn
@@ -137,14 +171,19 @@ public class ChessGame {
         }
     }
 
-    private static void makeMove(String fromSquare, String toSquare, Board board, String piece){
+    private static void makeMove(String fromSquare, String toSquare, Board board, String piece) {
+        // Store what should be at the fromSquare after move
         Integer[] squareList = board.processFileAndRank(fromSquare);
-        if ((squareList[0] + squareList[1])%2 == 0){
-            board.setSquare(fromSquare, "o");
-        }else{
-            board.setSquare(fromSquare, "x");
-        }
+        String emptySquare = ((squareList[0] + squareList[1]) % 2 == 0) ? "o" : "x";
+        board.setSquare(fromSquare, emptySquare);
         board.setSquare(toSquare, piece);
+    }
+
+    private static void undoMove(String fromSquare, String toSquare, Board board, String piece, String capturedPiece) {
+        // Move piece back
+        board.setSquare(fromSquare, piece);
+        // Restore what was at destination (either empty square or captured piece)
+        board.setSquare(toSquare, capturedPiece);
     }
 
     public static void main(String[] args) {
@@ -162,8 +201,8 @@ public class ChessGame {
                 board = new Board();
                 playGame(board);
             } else if (choice == 2) {
-                System.out.println("Enter FEN-string (e.g: 2rq1rk1/4ppbp/6p1/3pP3/2pP4/2P1BN2/3QKP1P/RR4RK b - - 0 18). Carefully enter string to avoid improper result:");
-                String FENString = scanner.nextLine(); // Use same scanner
+                System.out.println("Enter FEN-string (e.g: 2rq1rk1/4ppbp/6p1/3pP3/2pP4/2P1BN2/3QKP1P/RR4RK b - - 0 18):");
+                String FENString = scanner.nextLine();
                 board = new Board(FENString);
                 playGame(board);
             }

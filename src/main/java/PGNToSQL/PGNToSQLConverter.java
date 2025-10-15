@@ -24,7 +24,7 @@ public class PGNToSQLConverter {
             pgnFilePath = args[0];
         }
 
-        String dbUrl = "jdbc:sqlite:chess-games.db";
+        String dbUrl = "jdbc:sqlite:database/chess-games.db";
 
         initializeDatabase(dbUrl);
 

@@ -212,12 +212,9 @@ public class Moves {
     }
 
     public boolean pawnMove(String fromSquare, String toSquare){
-        System.out.println("here4");
         if (pieceInRange(fromSquare,toSquare)){
-            System.out.println("here5");
             return false;
         }
-        System.out.println("here4");
 
         if (!piece.equalsIgnoreCase("p")){
             return false;

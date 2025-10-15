@@ -3,7 +3,7 @@ package chess.logic;
 import java.util.*;
 
 public class Board {
-    private String[][] squares = new String[8][8];
+    private final String[][] squares = new String[8][8];
     private String FENStringPosition;
     private static final HashMap<String, Integer> fileToColumn =
             new HashMap<>(Map.of(
@@ -156,10 +156,10 @@ public class Board {
             // Use defaults if parsing fails
         }
 
-        // Increment halfmove clock (resets on captures/pawn moves - you'll need to add this logic)
+        // Increment half move clock (resets on captures/pawn moves - you'll need to add this logic)
         halfMoves++;
 
-        // Increment fullmove counter only after black moves
+        // Increment full move counter only after black moves
         if (currentTurn.equals("b")) {
             fullMoves++;
         }
