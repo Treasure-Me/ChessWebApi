@@ -277,7 +277,10 @@ public class ChessGame {
                 return;
             }
 
-            // Check if this move caused checkmate for the opponent
+            // Update FEN and switch turns
+            board.setFENStringPosition();
+
+            // Now check if the NEXT player is in checkmate or stalemate
             String nextPlayer = playerTurn.equals("w") ? "b" : "w";
             String nextKingPos = "";
             if (nextPlayer.equals("w")) {
@@ -288,20 +291,18 @@ public class ChessGame {
                 if (!positions.isEmpty()) nextKingPos = positions.getFirst();
             }
 
-            if (!nextKingPos.isEmpty() && isMate(nextPlayer, nextKingPos, board)) {
-                String winner = playerTurn.equals("w") ? "White" : "Black";
-                System.out.println("Checkmate! " + winner + " wins!");
-                return;
-            }
-
-            // Check if this move caused stalemate for the opponent
-            if (!nextKingPos.isEmpty() && isStalemate(nextPlayer, nextKingPos, board)) {
-                System.out.println("Stalemate! Game is a draw.");
-                return;
+            if (!nextKingPos.isEmpty()) {
+                if (isMate(nextPlayer, nextKingPos, board)) {
+                    String winner = playerTurn.equals("w") ? "White" : "Black";
+                    System.out.println("Checkmate! " + winner + " wins!");
+                    return;
+                } else if (isStalemate(nextPlayer, nextKingPos, board)) {
+                    System.out.println("Stalemate! Game is a draw.");
+                    return;
+                }
             }
 
             // Continue the game with next turn
-            board.setFENStringPosition();
             playGame(board);
         } else {
             System.out.println("Invalid move. Try again.");
@@ -331,7 +332,7 @@ public class ChessGame {
         try {
             Board board;
             int choice = Integer.parseInt(scanner.nextLine());
-            if (!(new ArrayList<>(Arrays.asList(1, 2)).contains(choice))){
+            if (!(new ArrayList<>(Arrays.asList(1, 2)).contains(choice))) {
                 throw new IllegalArgumentException();
             }
 
