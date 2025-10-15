@@ -38,22 +38,123 @@ public class ChessGame {
         return false;
     }
 
-    private static boolean isMate(String playerTurn, String kingPosition, Board board){
-        ArrayList<String> piecesIterated = new ArrayList<>();
-
-        if (!inCheck(board, kingPosition)){
+    private static boolean isMate(String playerTurn, String kingPosition, Board board) {
+        // First, the king must be in check
+        if (!inCheck(board, kingPosition)) {
             return false;
         }
-        ArrayList<String> playerPieces = Objects.equals(playerTurn, "w")? whitePieces:blackPieces;
 
-        for (String piece:playerPieces){
+        // Get all pieces for the current player
+        ArrayList<String> playerPieces = playerTurn.equals("w") ? whitePieces : blackPieces;
 
+        // Try every possible move for every piece of the current player
+        for (String pieceType : playerPieces) {
+            // Get all positions of this piece type on the board
+            ArrayList<String> piecePositions = board.getPiecePositions(pieceType);
 
-            if (!piecesIterated.contains(piece)){
-                piecesIterated.add(piece);
+            for (String fromSquare : piecePositions) {
+                // Get all possible moves for this piece from this square
+                ArrayList<String> possibleMoves = generateAllPossibleMoves(board, fromSquare, pieceType);
+
+                for (String toSquare : possibleMoves) {
+                    // Test if this move gets out of check
+                    if (testMoveForCheckEscape(board, fromSquare, toSquare, pieceType, playerTurn, kingPosition)) {
+                        return false; // Found at least one legal move - not checkmate
+                    }
+                }
             }
         }
-        return false;
+
+        // No legal moves found while in check - it's checkmate!
+        return true;
+    }
+
+    /**
+     * Generates all possible destination squares for a piece
+     */
+    private static ArrayList<String> generateAllPossibleMoves(Board board, String fromSquare, String pieceType) {
+        ArrayList<String> possibleMoves = new ArrayList<>();
+
+        // Generate moves to all 64 squares and filter valid ones
+        for (char file = 'a'; file <= 'h'; file++) {
+            for (int rank = 1; rank <= 8; rank++) {
+                String toSquare = "" + file + rank;
+
+                // Skip moving to the same square
+                if (fromSquare.equals(toSquare)) continue;
+
+                // Check if this is a valid move for the piece
+                Moves moves = new Moves(pieceType, board);
+                if (identifyPlayPiece(pieceType, moves, fromSquare, toSquare)) {
+                    // Additional check: don't capture own pieces
+                    String targetPiece = board.getSquare(toSquare);
+                    if ((pieceType.equals(pieceType.toUpperCase()) && !whitePieces.contains(targetPiece)) ||
+                            (pieceType.equals(pieceType.toLowerCase()) && !blackPieces.contains(targetPiece))) {
+                        possibleMoves.add(toSquare);
+                    }
+                }
+            }
+        }
+
+        return possibleMoves;
+    }
+
+    /**
+     * Tests if a move gets the king out of check
+     */
+    private static boolean testMoveForCheckEscape(Board board, String fromSquare, String toSquare,
+                                                  String pieceType, String playerTurn, String currentKingPos) {
+        // Store original state
+        String originalFrom = board.getSquare(fromSquare);
+        String originalTo = board.getSquare(toSquare);
+
+        // Make the move temporarily
+        board.setSquare(fromSquare, " ");
+        board.setSquare(toSquare, pieceType);
+
+        // Update king position if the king is moving
+        String newKingPosition = currentKingPos;
+        if (pieceType.equalsIgnoreCase("k")) {
+            newKingPosition = toSquare;
+        }
+
+        // Check if king is still in check after the move
+        boolean stillInCheck = inCheck(board, newKingPosition);
+
+        // Undo the move
+        board.setSquare(fromSquare, originalFrom);
+        board.setSquare(toSquare, originalTo);
+
+        // If the move gets out of check, it's a legal escape
+        return !stillInCheck;
+    }
+
+    private static boolean isStalemate(String playerTurn, String kingPosition, Board board) {
+        // For stalemate: NOT in check but no legal moves
+        if (inCheck(board, kingPosition)) {
+            return false;
+        }
+
+        // Get all pieces for the current player
+        ArrayList<String> playerPieces = playerTurn.equals("w") ? whitePieces : blackPieces;
+
+        // Try every possible move for every piece
+        for (String pieceType : playerPieces) {
+            ArrayList<String> piecePositions = board.getPiecePositions(pieceType);
+
+            for (String fromSquare : piecePositions) {
+                ArrayList<String> possibleMoves = generateAllPossibleMoves(board, fromSquare, pieceType);
+
+                for (String toSquare : possibleMoves) {
+                    if (testMoveForCheckEscape(board, fromSquare, toSquare, pieceType, playerTurn, kingPosition)) {
+                        return false; // Found at least one legal move - not stalemate
+                    }
+                }
+            }
+        }
+
+        // No legal moves found while not in check - it's stalemate!
+        return true;
     }
 
     private static void playGame(Board board) {
@@ -63,7 +164,7 @@ public class ChessGame {
         String kingPosition = "";
 
         // Get king position for current player
-        if (playerTurn.equals("b")){
+        if (playerTurn.equals("b")) {
             ArrayList<String> positions = board.getPiecePositions("k");
             if (!positions.isEmpty()) {
                 kingPosition = positions.getFirst();
@@ -72,7 +173,21 @@ public class ChessGame {
             ArrayList<String> positions = board.getPiecePositions("K");
             if (!positions.isEmpty()) {
                 kingPosition = positions.getFirst();
+                System.out.println(positions);
             }
+        }
+
+        // Check for checkmate before the move
+        if (isMate(playerTurn, kingPosition, board)) {
+            String winner = playerTurn.equals("w") ? "Black" : "White";
+            System.out.println("Checkmate! " + winner + " wins!");
+            return;
+        }
+
+        // Check for stalemate
+        if (isStalemate(playerTurn, kingPosition, board)) {
+            System.out.println("Stalemate! Game is a draw.");
+            return;
         }
 
         if (playerTurn.equals("w")) {
@@ -162,6 +277,29 @@ public class ChessGame {
                 return;
             }
 
+            // Check if this move caused checkmate for the opponent
+            String nextPlayer = playerTurn.equals("w") ? "b" : "w";
+            String nextKingPos = "";
+            if (nextPlayer.equals("w")) {
+                ArrayList<String> positions = board.getPiecePositions("K");
+                if (!positions.isEmpty()) nextKingPos = positions.getFirst();
+            } else {
+                ArrayList<String> positions = board.getPiecePositions("k");
+                if (!positions.isEmpty()) nextKingPos = positions.getFirst();
+            }
+
+            if (!nextKingPos.isEmpty() && isMate(nextPlayer, nextKingPos, board)) {
+                String winner = playerTurn.equals("w") ? "White" : "Black";
+                System.out.println("Checkmate! " + winner + " wins!");
+                return;
+            }
+
+            // Check if this move caused stalemate for the opponent
+            if (!nextKingPos.isEmpty() && isStalemate(nextPlayer, nextKingPos, board)) {
+                System.out.println("Stalemate! Game is a draw.");
+                return;
+            }
+
             // Continue the game with next turn
             board.setFENStringPosition();
             playGame(board);
@@ -193,7 +331,7 @@ public class ChessGame {
         try {
             Board board;
             int choice = Integer.parseInt(scanner.nextLine());
-            if (!(new ArrayList<>(Arrays.asList(1, 2)).contains(choice))) {
+            if (!(new ArrayList<>(Arrays.asList(1, 2)).contains(choice))){
                 throw new IllegalArgumentException();
             }
 
