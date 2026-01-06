@@ -215,6 +215,8 @@ class ChessUI {
     }
 
     updateBoardState(boardState) {
+        // FIX: Flip the board - Java returns row 0 as rank 1 (bottom)
+        // We need row 0 as rank 8 (top) for JavaScript display
         if (boardState && Array.isArray(boardState)) {
             this.currentBoard = boardState.slice().reverse();
         } else {

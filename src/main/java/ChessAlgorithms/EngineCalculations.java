@@ -1,7 +1,7 @@
 package ChessAlgorithms;
 
-import chess.logic.Board;
-import chess.logic.Moves;
+import logic.Board;
+import logic.Moves;
 
 import java.util.*;
 

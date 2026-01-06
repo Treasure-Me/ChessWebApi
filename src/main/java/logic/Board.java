@@ -1,10 +1,14 @@
-package chess.logic;
+package logic;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 
 public class Board {
     private final String[][] squares = new String[8][8];
     private String FENStringPosition;
+    private String gameState;
     private static final HashMap<String, Integer> fileToColumn =
             new HashMap<>(Map.of(
                     "a", 0,
@@ -20,11 +24,13 @@ public class Board {
     public Board(String FENStringPosition){
         this.FENStringPosition = FENStringPosition;
         initializeSquares();
+        gameState = "ongoing";
     }
 
     public Board(){
-        this.FENStringPosition = "RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr w KQkq - 0 1";
+        this.FENStringPosition = "RNBKQBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbkqbnr w KQkq - 0 1";
         initializeSquares();
+        gameState = "ongoing";
     }
 
     // Initialize square names (a1–h8)
@@ -63,6 +69,24 @@ public class Board {
 
     public String[][] getSquares(){
         return squares;
+    };
+
+    public String[][] getCleanSquares() {
+        // Create a NEW array (deep copy)
+        String[][] cleanSquares = new String[8][8];
+
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                String piece = squares[i][j].trim();
+
+                if (piece.equals("x") || piece.equals("o") || piece.equals(" ")) {
+                    cleanSquares[i][j] = "";
+                } else {
+                    cleanSquares[i][j] = piece;
+                }
+            }
+        }
+        return cleanSquares;
     }
 
     // Look up a square name like "e4" and return its value
@@ -76,6 +100,14 @@ public class Board {
 
         // Remove the space for clean piece identification
         return value.trim();
+    }
+
+    public String getGameState(){
+        return gameState;
+    }
+
+    public void setGameState(String state){
+        gameState = state;
     }
 
     public void setSquare(String square, String piece) {
@@ -202,6 +234,18 @@ public class Board {
             System.out.println();
         }
         System.out.println();
+    }
+
+    public StringBuilder showBoardImage() {
+        StringBuilder boardImage = new StringBuilder();
+        for (int row = 7; row >= 0; row--) {
+            for (int col = 0; col < 8; col++) {
+               boardImage.append(squares[row][col]);
+            }
+             boardImage.append("\n");
+        }
+        boardImage.append("\n");
+        return boardImage;
     }
 
     public boolean gameOver() {

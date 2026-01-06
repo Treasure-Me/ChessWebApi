@@ -1,6 +1,9 @@
-package chess.logic;
+package logic;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Scanner;
 
 public class ChessGame {
     private static final ArrayList<String> blackPieces = new ArrayList<>(List.of("r","n","k","q","p","b"));
@@ -38,7 +41,7 @@ public class ChessGame {
         return false;
     }
 
-    private static boolean isMate(String playerTurn, String kingPosition, Board board) {
+    public static boolean isMate(String playerTurn, String kingPosition, Board board) {
         // First, the king must be in check
         if (!inCheck(board, kingPosition)) {
             return false;
@@ -72,7 +75,7 @@ public class ChessGame {
     /**
      * Generates all possible destination squares for a piece
      */
-    private static ArrayList<String> generateAllPossibleMoves(Board board, String fromSquare, String pieceType) {
+    public static ArrayList<String> generateAllPossibleMoves(Board board, String fromSquare, String pieceType) {
         ArrayList<String> possibleMoves = new ArrayList<>();
 
         // Generate moves to all 64 squares and filter valid ones
@@ -157,7 +160,7 @@ public class ChessGame {
         return true;
     }
 
-    private static void playGame(Board board) {
+    public static void playGame(Board board) {
         board.printBoard();
         String playerTurn = board.getFENStringPosition().split(" ")[1];
         Scanner scanner = new Scanner(System.in);
@@ -197,6 +200,7 @@ public class ChessGame {
         }
 
         String move = scanner.nextLine();
+
         if (move.equals("resign")){
             if (playerTurn.equals("w")){
                 System.out.println("White resigns. Black is victorious.");
@@ -303,10 +307,153 @@ public class ChessGame {
             }
 
             // Continue the game with next turn
-            playGame(board);
+            playGame(board); // there's a problem here with move intake
         } else {
             System.out.println("Invalid move. Try again.");
             playGame(board);
+        }
+    }
+
+    public static Board playGame(Board board, String playerMove) {
+        String playerTurn = board.getFENStringPosition().split(" ")[1];
+        String kingPosition = "";
+
+        // Get king position for current player
+        if (playerTurn.equals("b")) {
+            ArrayList<String> positions = board.getPiecePositions("k");
+            if (!positions.isEmpty()) {
+                kingPosition = positions.getFirst();
+            }
+        } else if (playerTurn.equals("w")) {
+            ArrayList<String> positions = board.getPiecePositions("K");
+            if (!positions.isEmpty()) {
+                kingPosition = positions.getFirst();
+            }
+        }
+
+        // Check for checkmate before the move
+        if (isMate(playerTurn, kingPosition, board)) {
+            String winner = playerTurn.equals("w") ? "Black" : "White";
+            board.setGameState("Checkmate! " + winner + " wins!");
+            return board;
+        }
+
+        // Check for stalemate
+        if (isStalemate(playerTurn, kingPosition, board)) {
+            board.setGameState("Stalemate! Game is a draw.");
+            return board;
+        }
+
+//        if (playerTurn.equals("w")) {
+//            System.out.println("Whites turn. Play a move (e.g: e2-e4):");
+//        } else if (playerTurn.equals("b")) {
+//            System.out.println("Blacks turn. Play a move (e.g: e7-e5):");
+//        }
+
+        String move = playerMove;
+
+        if (move.equals("resign")){
+            if (playerTurn.equals("w")){
+                board.setGameState("White resigns. Black is victorious.");
+            }else if (playerTurn.equals("b")){
+                board.setGameState("Black resigns. White is victorious.");
+            }
+            return board;
+        }
+
+        String[] moveList = move.split("-");
+
+        // Validate move format
+        if (moveList.length != 2) {
+            board.setGameState("Invalid move format. Use format like 'a1-a6'. Try again.");
+            return board;        }
+
+        String fromSquare = moveList[0].toLowerCase();
+        String toSquare = moveList[1].toLowerCase();
+
+        String piece = board.getSquare(fromSquare);
+
+        // Check if there's actually a piece on the fromSquare
+        if (piece == null || piece.equals(" ") || piece.equals("o") || piece.equals("x")) {
+            board.setGameState("No piece at " + fromSquare + ". Try again.");
+            return board;
+        }
+
+        // Validate piece color matches player turn
+        if (playerTurn.equals("w") && !piece.equals(piece.toUpperCase())) {
+            board.setGameState("Wrong piece selected! Select white pieces.");
+            return board;
+        } else if (playerTurn.equals("b") && !piece.equals(piece.toLowerCase())) {
+            board.setGameState("Wrong piece selected! Select black pieces.");
+            return board;
+        }
+
+        System.out.println(piece + ":" + fromSquare + "->" + toSquare);
+        Moves moves = new Moves(piece, board);
+
+        if (identifyPlayPiece(piece, moves, fromSquare, toSquare)) {
+            String atToSquare = board.getSquare(toSquare);
+
+            // Check for capturing own pieces
+            if (playerTurn.equals("w") && whitePieces.contains(atToSquare)) {
+                board.setGameState("Cannot capture your own piece");
+                return board;
+            } else if (playerTurn.equals("b") && blackPieces.contains(atToSquare)) {
+                board.setGameState("Cannot capture your own piece");
+                return board;
+            }
+
+            // Store the piece that was at the destination (for capture)
+            String capturedPiece = atToSquare;
+
+            // Make the move
+            makeMove(fromSquare, toSquare, board, piece);
+            board.setGameState("ongoing");
+
+            // Update king position if king moved
+            if (piece.equalsIgnoreCase("k")) {
+                kingPosition = toSquare;
+            }
+
+            // Check if move puts own king in check
+            if (inCheck(board, kingPosition)) {
+                String player = playerTurn.equals("w") ? "White" : "Black";
+                board.setGameState(player + " in check. Move illegal.");
+
+                // Undo the move
+                undoMove(fromSquare, toSquare, board, piece, capturedPiece);
+                return board;
+            }
+
+            // Update FEN and switch turns
+            board.setFENStringPosition();
+
+            // Now check if the NEXT player is in checkmate or stalemate
+            String nextPlayer = playerTurn.equals("w") ? "b" : "w";
+            String nextKingPos = "";
+            if (nextPlayer.equals("w")) {
+                ArrayList<String> positions = board.getPiecePositions("K");
+                if (!positions.isEmpty()) nextKingPos = positions.getFirst();
+            } else {
+                ArrayList<String> positions = board.getPiecePositions("k");
+                if (!positions.isEmpty()) nextKingPos = positions.getFirst();
+            }
+
+            if (!nextKingPos.isEmpty()) {
+                if (isMate(nextPlayer, nextKingPos, board)) {
+                    String winner = playerTurn.equals("w") ? "White" : "Black";
+                    board.setGameState("Checkmate! " + winner + " wins!");
+                    return board;
+                } else if (isStalemate(nextPlayer, nextKingPos, board)) {
+                    board.setGameState("Stalemate! Game is a draw.");
+                    return board;
+                }
+            }
+
+            return board;
+        } else {
+            board.setGameState("Invalid move. Try again.");
+            return board;
         }
     }
 
