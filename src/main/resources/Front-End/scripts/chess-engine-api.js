@@ -1,35 +1,56 @@
 class ChessEngineAPI {
-    static baseURL = 'http://localhost:5000';
-    static matchURL = 'http://localhost:5001'; // Default, updates dynamically
+    static baseURL = window.location.hostname === 'localhost'
+        ? 'http://localhost:5000'
+        : '';
+    static activeGameId = null; // Stores the ID of the current match
 
-    static setMatchPort(port) {
-        this.matchURL = `http://localhost:${port}`;
-        console.log("Game Server Port set to:", port);
-    }
-
-    static async makeMove(from, to) {
+    static async newGame() {
         try {
-            const response = await fetch(`${this.matchURL}/api/move`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ from: from, to: to })
+            const response = await fetch(`${this.baseURL}/api/new-game`, {
+                method: 'POST'
             });
-            if (!response.ok) throw new Error(`Move failed: ${response.status}`);
-            return await response.json();
+            if (!response.ok) throw new Error(`New Game failed: ${response.status}`);
+
+            const data = await response.json();
+
+            if (data.gameId) {
+                this.activeGameId = data.gameId;
+                console.log("Joined Game ID:", this.activeGameId);
+            }
+
+            return data;
         } catch (error) {
             console.error('API Error:', error);
             throw error;
         }
     }
 
-    static async getLegalMoves(fromSquare, piece) {
+    static async makeMove(from, to) {
+        if (!this.activeGameId) return { success: false, message: "No active game" };
+
         try {
-            const response = await fetch(`${this.matchURL}/api/legal-moves`, {
+            const response = await fetch(`${this.baseURL}/api/game/${this.activeGameId}/move`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ square: fromSquare, piece: piece })
+                body: JSON.stringify({ from: from, to: to })
             });
-            if (!response.ok) throw new Error(`Legal moves failed: ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            return { success: false, message: "Connection Error" };
+        }
+    }
+
+    static async getLegalMoves(square, piece) {
+        if (!this.activeGameId) return [];
+
+        try {
+            const response = await fetch(`${this.baseURL}/api/game/${this.activeGameId}/legal-moves`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ square: square, piece: piece })
+            });
+            if (!response.ok) return [];
             return await response.json();
         } catch (error) {
             console.error('API Error:', error);
@@ -37,12 +58,12 @@ class ChessEngineAPI {
         }
     }
 
-    // Used for Polling (Syncing state across tabs)
     static async getGameState() {
+        if (!this.activeGameId) return null;
+
         try {
-            const response = await fetch(`${this.matchURL}/api/load-fen`, {
-                method: 'POST'
-            });
+            // Note: We use GET here as it is read-only
+            const response = await fetch(`${this.baseURL}/api/game/${this.activeGameId}/state`);
             if (!response.ok) return null;
             return await response.json();
         } catch (error) {
@@ -50,24 +71,11 @@ class ChessEngineAPI {
         }
     }
 
-    static async newGame() {
-        try {
-            const response = await fetch(`${this.baseURL}/api/new-game`, {
-                method: 'POST' // Matches Java server.post
-            });
-            if (!response.ok) throw new Error(`New Game failed: ${response.status}`);
-            return await response.json();
-        } catch (error) {
-            console.error('API Error:', error);
-            throw error;
-        }
-    }
-
     static async resignGame() {
+        if (!this.activeGameId) return;
+
         try {
-            // CHANGE: Use baseURL (5000) instead of matchURL (5001)
-            // This ensures the session cookie is valid
-            const response = await fetch(`${this.baseURL}/api/resign`, {
+            const response = await fetch(`${this.baseURL}/api/game/${this.activeGameId}/resign`, {
                 method: 'POST'
             });
             if (!response.ok) throw new Error(`Resign failed: ${response.status}`);
@@ -91,8 +99,11 @@ class ChessEngineAPI {
         }
     }
 
-    // Placeholder if you implement engine depth later
     static async getBestMove(depth) {
         return null;
+    }
+
+    static setMatchPort(port) {
+        console.log("Ports are deprecated in favor of Game IDs.");
     }
 }

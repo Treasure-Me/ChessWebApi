@@ -1,9 +1,0 @@
-ChessAlgorithms\EngineCalculations.class
-PGNToSQL\PGNToSQLConverter.class
-PGNToSQL\PGNToSQLConverter$ChessGame.class
-API\ChessServerAPI.class
-DataHandler\DatabaseManager.class
-API\ChessApiHandler.class
-DataHandler\DatabaseConfig.class
-API\chessMatchHandler.class
-PGNToSQL\PGNDownloader.class

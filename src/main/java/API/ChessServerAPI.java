@@ -19,9 +19,9 @@ public class ChessServerAPI {
 
         server = Javalin.create(config -> {
                     config.staticFiles.add(staticFiles -> {
-                        staticFiles.hostedPath = "/";              // URL path prefix
-                        staticFiles.directory = "Front-End";         // folder inside classpath
-                        staticFiles.location = Location.CLASSPATH; // CLASSPATH or EXTERNAL
+                        staticFiles.hostedPath = "/";
+                        staticFiles.directory = "Front-End";
+                        staticFiles.location = Location.CLASSPATH;
                     });
                 })
                 .before(ctx -> {
@@ -39,7 +39,14 @@ public class ChessServerAPI {
         this.server.get("/api/user", ChessApiHandler::getPlayerLoggedIn);
         this.server.get("/", ChessApiHandler::loadLoginPage);
         this.server.post("/api/resign", ChessApiHandler::resignMatch);
-
+        this.server.post("/api/game/{gameId}/{action}", ChessApiHandler::handleGameAction);
+        this.server.get("/api/game/{gameId}/state", context -> {
+            // Forward to handler treating 'state' as the action
+            // (We need to handle GET specifically or just use POST for everything for simplicity)
+            String gId = context.pathParam("gameId");
+            chessMatchHandler g = GameManager.getGame(gId);
+            if (g != null) context.json(g.getGameState());
+        });
         this.server.get("/api/health", ctx -> {
             ctx.json(Map.of(
                     "status", "online",
@@ -63,7 +70,13 @@ public class ChessServerAPI {
     public static void main(String[] args) {
         ChessServerAPI server = new ChessServerAPI();
         seedDemoData();
-        server.start(5000);
+
+        // Google Cloud injects the PORT variable (usually 8080)
+        String portStr = System.getenv("PORT");
+        int port = (portStr != null) ? Integer.parseInt(portStr) : 5000;
+
+        System.out.println("Starting server on port: " + port);
+        server.start(port);
     }
 
     public void start(int port) {

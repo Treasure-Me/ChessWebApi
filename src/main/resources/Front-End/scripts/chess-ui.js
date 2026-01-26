@@ -5,7 +5,7 @@ class ChessUI {
 
         // State
         this.selectedSquare = null;
-        this.legalMoves = [];
+        this.legalMoves = []; // Now stores Strings: ["e3", "e4"]
         this.currentBoard = this.getInitialBoard();
         this.currentPlayer = 'white';
         this.myColor = null;
@@ -14,17 +14,13 @@ class ChessUI {
         this.pollingInterval = null;
         this.lobbyInterval = null;
 
-        // CRITICAL: Start the async chain
         this.init();
     }
 
     async init() {
         this.setupCommonListeners();
-
-        // 1. WAIT for Username (Fixes the "Spectator" bug)
         await this.fetchAndSetUsername();
 
-        // 2. Route to correct page logic
         if (this.currentPage === 'game') {
             this.initGamePage();
         } else {
@@ -34,19 +30,15 @@ class ChessUI {
 
     // --- SETUP ---
 
-    setupCommonListeners() {
-        // Any global listeners
-    }
+    setupCommonListeners() {}
 
     async fetchAndSetUsername() {
         try {
             const username = await ChessEngineAPI.getLoggedInUser();
             this.currentUsername = username || "Guest";
-            console.log("Logged in as:", this.currentUsername);
-
             const el = document.querySelector(".username");
             if (el) el.innerText = this.currentUsername;
-        } catch (e) { console.error("Username error:", e); }
+        } catch (e) { console.error(e); }
     }
 
     // --- HOME PAGE ---
@@ -71,17 +63,13 @@ class ChessUI {
     // --- GAME PAGE ---
 
     initGamePage() {
-        // Button Listeners
         const resignBtn = document.getElementById('resign');
         if(resignBtn) resignBtn.addEventListener('click', () => this.resign());
 
         const modalNewGame = document.getElementById('modal-new-game');
         if(modalNewGame) modalNewGame.addEventListener('click', () => window.location.href = 'home.html');
 
-        // Draw Board
         this.initializeBoard();
-
-        // Start Logic
         this.checkGameStatus();
     }
 
@@ -92,7 +80,6 @@ class ChessUI {
 
             if (data.status === "waiting for player") {
                 if(statusEl) statusEl.textContent = "Waiting for opponent...";
-                // Poll waiting status
                 this.lobbyInterval = setInterval(async () => {
                     const check = await ChessEngineAPI.newGame();
                     if (check.status === "match_started") {
@@ -106,15 +93,13 @@ class ChessUI {
             }
         } catch (e) {
             console.error(e);
-            alert("Error checking game status. Server might be offline.");
+            alert("Error checking game status.");
         }
     }
 
     startGame(data) {
         if (data.port) ChessEngineAPI.setMatchPort(data.port);
 
-        // Determine Color
-        // Since we awaited username, this check will now be accurate
         if (data.white === this.currentUsername) {
             this.myColor = 'white';
             alert("You are WHITE");
@@ -123,7 +108,6 @@ class ChessUI {
             alert("You are BLACK");
         } else {
             this.myColor = 'spectator';
-            console.log("Username mismatch. Defaulting to Spectator Mode.");
         }
 
         this.startPolling();
@@ -149,13 +133,9 @@ class ChessUI {
                     }
                 }
 
-                // IMPROVED CHECK: Looks for "wins", "Checkmate", or "Game Over"
-                if (state.status) {
-                    const s = state.status.toLowerCase();
-                    if (s.includes("wins") || s.includes("checkmate") || s.includes("game over")) {
-                        this.showGameOverModal(state.status);
-                        clearInterval(this.pollingInterval); // Stop polling
-                    }
+                if (state.status && (state.status.includes("wins") || state.status.includes("Checkmate") || state.status.includes("Game Over"))) {
+                    this.showGameOverModal(state.status);
+                    clearInterval(this.pollingInterval);
                 }
             } else {
                 if(dot) dot.style.backgroundColor = 'red';
@@ -166,21 +146,16 @@ class ChessUI {
     // --- INTERACTION ---
 
     async handleSquareClick(row, col) {
-        // Debug Log
-        console.log(`Clicked ${row},${col}. MyColor: ${this.myColor}, Turn: ${this.currentPlayer}`);
-
-        // Strict Turn Check
-        if (this.myColor !== 'spectator' && this.myColor !== this.currentPlayer) {
-            console.log("Blocked: Not your turn.");
-            return;
-        }
+        if (this.myColor !== 'spectator' && this.myColor !== this.currentPlayer) return;
 
         const position = this.getSquareNotation(row, col);
         const piece = this.currentBoard[row][col];
 
         if (this.selectedSquare) {
             const [selectedRow, selectedCol] = this.selectedSquare;
-            const isLegalMove = this.legalMoves.some(move => move.to === position);
+
+            // FIX: Check if 'position' exists in the array of strings
+            const isLegalMove = this.legalMoves.includes(position);
 
             if (isLegalMove) {
                 await this.makeMove(this.getSquareNotation(selectedRow, selectedCol), position);
@@ -204,26 +179,58 @@ class ChessUI {
         }
     }
 
+    async selectSquare(row, col, piece) {
+        this.selectedSquare = [row, col];
+        const square = document.querySelector(`.square[data-row="${row}"][data-col="${col}"]`);
+        if(square) square.classList.add('selected');
+
+        // Fetch moves
+        const moves = await ChessEngineAPI.getLegalMoves(this.getSquareNotation(row, col), piece);
+        this.legalMoves = moves || [];
+        this.highlightLegalMoves();
+    }
+
+    highlightLegalMoves() {
+        this.legalMoves.forEach(moveNotation => {
+            // FIX: 'moveNotation' is just a string "e4", not an object
+            const [row, col] = this.getRowColFromNotation(moveNotation);
+            const sq = document.querySelector(`.square[data-row="${row}"][data-col="${col}"]`);
+            if (sq) {
+                const isCapture = this.currentBoard[row][col] !== '';
+                sq.classList.add(isCapture ? 'legal-capture' : 'legal-move');
+            }
+        });
+    }
+
     // --- HELPERS ---
 
-    isOwnPiece(piece) {
-        if (!piece || piece === '') return false;
-
-        // FIX: Allow spectators (or mismatched users) to click pieces for testing
-        let activeColor = this.myColor;
-        if (activeColor === 'spectator' || !activeColor) {
-            activeColor = this.currentPlayer; // Fallback: Allow moving current turn's pieces
+    async makeMove(from, to) {
+        const result = await ChessEngineAPI.makeMove(from, to);
+        if (result.success) {
+            this.updateBoardState(result.newBoard);
+        } else {
+            // alert("Invalid Move: " + result.message);
         }
+    }
 
-        const isWhitePiece = piece === piece.toUpperCase();
-        return (activeColor === 'white' && isWhitePiece) ||
-            (activeColor === 'black' && !isWhitePiece);
+    clearSelection() {
+        if (this.selectedSquare) {
+            const sq = document.querySelector(`.square[data-row="${this.selectedSquare[0]}"][data-col="${this.selectedSquare[1]}"]`);
+            if (sq) sq.classList.remove('selected');
+        }
+        this.selectedSquare = null;
+        this.legalMoves = [];
+        this.clearHighlights();
+    }
+
+    clearHighlights() {
+        const squares = document.getElementsByClassName('square');
+        for (let sq of squares) sq.classList.remove('legal-move', 'legal-capture');
     }
 
     initializeBoard() {
         if(!this.boardElement) return;
         this.boardElement.innerHTML = '';
-        // Loop 0 to 7 (Top-Down)
         for (let row = 0; row < 8; row++) {
             for (let col = 0; col < 8; col++) {
                 const square = document.createElement('div');
@@ -238,6 +245,15 @@ class ChessUI {
         this.updatePieces();
     }
 
+    isOwnPiece(piece) {
+        if (!piece || piece === '') return false;
+        let activeColor = this.myColor;
+        if (activeColor === 'spectator' || !activeColor) activeColor = this.currentPlayer;
+        const isWhitePiece = piece === piece.toUpperCase();
+        return (activeColor === 'white' && isWhitePiece) ||
+            (activeColor === 'black' && !isWhitePiece);
+    }
+
     getSquareNotation(row, col) {
         const files = 'abcdefgh';
         const rank = 8 - row;
@@ -250,25 +266,6 @@ class ChessUI {
         const rank = parseInt(notation[1]);
         const row = 8 - rank;
         return [row, col];
-    }
-
-    async makeMove(from, to) {
-        const result = await ChessEngineAPI.makeMove(from, to);
-        if (result.success) {
-            this.updateBoardState(result.newBoard);
-        } else {
-            alert("Invalid Move: " + result.message);
-        }
-    }
-
-    async selectSquare(row, col, piece) {
-        this.selectedSquare = [row, col];
-        const square = document.querySelector(`.square[data-row="${row}"][data-col="${col}"]`);
-        if(square) square.classList.add('selected');
-
-        const moves = await ChessEngineAPI.getLegalMoves(this.getSquareNotation(row, col), piece);
-        this.legalMoves = moves || [];
-        this.highlightLegalMoves();
     }
 
     updateBoardState(boardState) {
@@ -298,43 +295,9 @@ class ChessUI {
         if(el) el.textContent = `${this.currentPlayer.charAt(0).toUpperCase() + this.currentPlayer.slice(1)}'s Turn`;
     }
 
-    highlightLegalMoves() {
-        this.legalMoves.forEach(move => {
-            const [row, col] = this.getRowColFromNotation(move.to);
-            const sq = document.querySelector(`.square[data-row="${row}"][data-col="${col}"]`);
-            if (sq) sq.classList.add(this.currentBoard[row][col] ? 'legal-capture' : 'legal-move');
-        });
-    }
-
-    clearSelection() {
-        if (this.selectedSquare) {
-            const sq = document.querySelector(`.square[data-row="${this.selectedSquare[0]}"][data-col="${this.selectedSquare[1]}"]`);
-            if (sq) sq.classList.remove('selected');
-        }
-        this.selectedSquare = null;
-        this.legalMoves = [];
-        this.clearHighlights();
-    }
-
-    clearHighlights() {
-        const squares = document.getElementsByClassName('square');
-        for (let sq of squares) sq.classList.remove('legal-move', 'legal-capture');
-    }
-
     async resign() {
-        if (!confirm("Are you sure you want to resign? This will end the game.")) return;
-
-        try {
-            // Call the new API method
-            await ChessEngineAPI.resignGame();
-
-            // Immediate feedback for the person who clicked
-            // The polling loop will update the board/modal for both players shortly after
-            alert("Resigned. Game Over.");
-        } catch (e) {
-            console.error("Resign error", e);
-            alert("Failed to resign. Server might be unreachable.");
-        }
+        if (!confirm("Resign game?")) return;
+        try { await ChessEngineAPI.resignGame(); } catch (e) { console.error(e); }
     }
 
     getInitialBoard() {
