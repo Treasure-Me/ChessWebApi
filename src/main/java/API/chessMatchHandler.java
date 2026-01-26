@@ -8,12 +8,11 @@ import io.javalin.Javalin;
 import io.javalin.http.Context;
 import logic.Board;
 import logic.ChessGame;
-import org.jetbrains.annotations.NotNull;
 
 public class chessMatchHandler {
     private final Javalin server;
     private Board board = new Board();
-    private final Map<Player, String> players = new HashMap<>();
+    public final Map<Player, String> players = new HashMap<>();
     private final UUID id;
 
     public chessMatchHandler(Player player1, Player player2) {
@@ -25,10 +24,10 @@ public class chessMatchHandler {
         this.id = UUID.randomUUID();
 
         server = Javalin.create(config -> {
-                    // This is the critical part to fix the "Access-Control-Allow-Origin" error
+                    // Enable CORS so Port 5000 (Frontend) can fetch data from Port 5001 (Backend)
                     config.bundledPlugins.enableCors(cors -> {
                         cors.addRule(it -> {
-                            it.reflectClientOrigin = true; // Allows your local frontend to talk to the backend
+                            it.reflectClientOrigin = true;
                         });
                     });
                 })
@@ -37,17 +36,27 @@ public class chessMatchHandler {
                         ctx.contentType("application/json");
                     }
                 });
-        this.server.post("/api/move", context -> sendMove(context));
-        this.server.post("/api/legal-moves", context -> legalMoves(context));
-        this.server.post("/api/load-fen", this::loadFenString);
+
+        this.server.post("/api/move", this::sendMove);
+        this.server.post("/api/legal-moves", this::legalMoves);
+        // We reuse /api/load-fen for state polling
+        this.server.post("/api/load-fen", this::loadGameState);
     }
 
-    private void loadFenString(Context context) {
-        context.json(board.getFENStringPosition());
+    // Called by JS Polling Interval
+    private void loadGameState(Context context) {
+        String turn = board.getFENStringPosition().split(" ")[1];
+
+        context.json(Map.of(
+                "newBoard", board.getCleanSquares(), // Requires Board.getCleanSquares() returning String[][]
+                "turn", turn,
+                "fen", board.getFENStringPosition(),
+                "status", board.getGameState()
+        ));
     }
 
     private void legalMoves(Context context) {
-        // Read the JSON body sent by chess-engine-api.js
+        // Read JSON body
         var body = context.bodyAsClass(Map.class);
         String fromSquare = (String) body.get("square");
         String pieceType = (String) body.get("piece");
@@ -55,7 +64,7 @@ public class chessMatchHandler {
         // Generate destinations
         ArrayList<String> destinations = ChessGame.generateAllPossibleMoves(board, fromSquare, pieceType);
 
-        // Map them to the format the JS UI expects: [{from: "e2", to: "e4"}]
+        // Transform for Frontend: ["e4"] -> [{"from":"e2", "to":"e4"}]
         List<Map<String, String>> movesForFrontend = new ArrayList<>();
         for (String dest : destinations) {
             movesForFrontend.add(Map.of("from", fromSquare, "to", dest));
@@ -64,33 +73,33 @@ public class chessMatchHandler {
         context.json(movesForFrontend);
     }
 
-    public UUID getGameId(){
-        return id;
-    }
+    private void sendMove(Context context) {
+        var moveRequest = context.bodyAsClass(Map.class);
+        String from = (String) moveRequest.get("from");
+        String to = (String) moveRequest.get("to");
 
-    private void sendMove(Context context){
-        var move = context.bodyAsClass(Map.class);
-        String from = (String) move.get("from");
-        String to = (String) move.get("to");
-
-        // This calls your logic which updates the board internal state
         ChessGame.playGame(board, from + "-" + to);
 
-        if (board.getGameState().equals("ongoing") || board.getGameState().contains("Checkmate")) {
+        String turn = board.getFENStringPosition().split(" ")[1];
+
+        if (board.getGameState().equals("ongoing") || board.getGameState().contains("Checkmate") || board.getGameState().contains("wins")) {
             context.json(Map.of(
                     "success", true,
                     "newBoard", board.getCleanSquares(),
-                    "gameOver", board.getGameState().contains("Checkmate"),
+                    "turn", turn,
+                    "gameOver", board.getGameState().contains("Checkmate") || board.getGameState().contains("wins"),
                     "message", board.getGameState()
             ));
         } else {
-            context.json(Map.of("success", false, "message", board.getGameState()));
+            context.json(Map.of(
+                    "success", false,
+                    "message", board.getGameState()
+            ));
         }
     }
 
-    public static void main(String[] args) {
-        chessMatchHandler server = new chessMatchHandler(new Player(UUID.randomUUID()), new Player(UUID.randomUUID()));
-        server.start(5000);
+    public UUID getGameId(){
+        return id;
     }
 
     public void start(int port) {

@@ -1,24 +1,20 @@
 class ChessEngineAPI {
     static baseURL = 'http://localhost:5000';
-    static matchURL = 'http://localhost:5001';
+    static matchURL = 'http://localhost:5001'; // Default, updates dynamically
+
+    static setMatchPort(port) {
+        this.matchURL = `http://localhost:${port}`;
+        console.log("Game Server Port set to:", port);
+    }
 
     static async makeMove(from, to) {
         try {
             const response = await fetch(`${this.matchURL}/api/move`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    from: from,
-                    to: to
-                })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ from: from, to: to })
             });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
+            if (!response.ok) throw new Error(`Move failed: ${response.status}`);
             return await response.json();
         } catch (error) {
             console.error('API Error:', error);
@@ -30,19 +26,10 @@ class ChessEngineAPI {
         try {
             const response = await fetch(`${this.matchURL}/api/legal-moves`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    square: fromSquare,
-                    piece: piece
-                })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ square: fromSquare, piece: piece })
             });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
+            if (!response.ok) throw new Error(`Legal moves failed: ${response.status}`);
             return await response.json();
         } catch (error) {
             console.error('API Error:', error);
@@ -50,25 +37,15 @@ class ChessEngineAPI {
         }
     }
 
-    static async getBestMove(depth) {
+    // Used for Polling (Syncing state across tabs)
+    static async getGameState() {
         try {
-            const response = await fetch(`${this.matchURL}/api/best-move`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    depth: depth
-                })
+            const response = await fetch(`${this.matchURL}/api/load-fen`, {
+                method: 'POST'
             });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
+            if (!response.ok) return null;
             return await response.json();
         } catch (error) {
-            console.error('API Error:', error);
             return null;
         }
     }
@@ -76,36 +53,9 @@ class ChessEngineAPI {
     static async newGame() {
         try {
             const response = await fetch(`${this.baseURL}/api/new-game`, {
-                method: 'POST'
+                method: 'POST' // Matches Java server.post
             });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            return await response.json();
-        } catch (error) {
-            console.error('API Error:', error);
-            throw error;
-        }
-    }
-
-    static async loadFEN(fenString) {
-        try {
-            const response = await fetch(`${this.matchURL}/api/load-fen`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    fen: fenString
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
+            if (!response.ok) throw new Error(`New Game failed: ${response.status}`);
             return await response.json();
         } catch (error) {
             console.error('API Error:', error);
@@ -115,18 +65,19 @@ class ChessEngineAPI {
 
     static async getLoggedInUser() {
         try {
-            // GET request to check if server is alive
-            const response = await fetch('/api/user', {
-                method: 'GET'
-            });
-
+            const response = await fetch(`${this.baseURL}/api/user`);
             if (response.ok) {
                 const data = await response.json();
                 return data.username;
             }
+            return "Guest";
         } catch (error) {
-            document.getElementById('serverStatus').textContent = 'Server: Offline';
-            return false;
+            return "Offline";
         }
+    }
+
+    // Placeholder if you implement engine depth later
+    static async getBestMove(depth) {
+        return null;
     }
 }

@@ -3,9 +3,6 @@ package API;
 import API.utility.Player;
 import API.utility.PlayerDaoImplementation;
 import io.javalin.http.Context;
-import logic.Board;
-import logic.ChessGame;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
@@ -14,16 +11,11 @@ import static API.ChessServerAPI.logger;
 
 public class ChessApiHandler {
 
-    ChessGame chessGame = new ChessGame();
     public static ArrayList<Player> playersLoggedIn = new ArrayList<>();
     private static ArrayList<Player> playersReadyForGame = new ArrayList<>();
-    private static ArrayList<Player> playersInGameLobby = new ArrayList<>();
+    // Keep track of the running game
+    private static chessMatchHandler activeGameHandler;
 
-    /**
-     * login user to site
-     *
-     * @param context The Javalin Context for the HTTP GET Request
-     */
     public static void login(Context context) {
         try {
             String username = context.formParam("username");
@@ -48,7 +40,6 @@ public class ChessApiHandler {
                 return;
             }
 
-            // Login successful
             context.sessionAttribute("user", player);
             playersLoggedIn.add(player);
             context.json(Map.of(
@@ -65,20 +56,17 @@ public class ChessApiHandler {
 
     public static void loginGuest(Context context) {
         UUID guestID = UUID.randomUUID();
-        String username = guestID.toString();
+        // Use first 8 chars for cleaner guest names
+        String username = "Guest-" + guestID.toString().substring(0, 8);
         try {
-            if (username == null || username.trim().isEmpty()) {
-                context.status(400).json(Map.of("success", false, "message", "Username is required"));
-                return;
-            }
             Player player = new Player(guestID);
+            // Note: Ideally set the username on the player object here if your Player class supports it
 
-            // Login successful
             context.sessionAttribute("user", player);
             context.json(Map.of(
                     "success", true,
                     "message", "Login successful",
-                    "username", player.getUsername()
+                    "username", username
             ));
 
         } catch (Exception e) {
@@ -90,14 +78,11 @@ public class ChessApiHandler {
     @Nullable
     public static Player getPlayerLoggedIn(Context context) {
         Player player = context.sessionAttribute("user");
-        assert player != null;
-        context.json(
-                Map.of(
-                        "ok", true,
-                        "message", STR."Player logged in is \{player.getUsername()}",
-                        "username", player.getUsername()
-                )
-        );
+        if (player != null) {
+            context.json(Map.of("ok", true, "username", player.getUsername()));
+        } else {
+            context.status(401).json(Map.of("ok", false));
+        }
         return player;
     }
 
@@ -106,30 +91,62 @@ public class ChessApiHandler {
     }
 
     public static void newMatch(Context context) {
-        Player player = getPlayerLoggedIn(context);
-        playersReadyForGame.add(player);
-        if (playersReadyForGame.size() >= 2){
-            chessMatchHandler game = new chessMatchHandler(playersReadyForGame.get(0), playersReadyForGame.get(1));
-            playersInGameLobby.add(playersReadyForGame.get(0));
-            playersInGameLobby.add(playersReadyForGame.get(1));
-            playersReadyForGame.remove(0);
-            playersReadyForGame.remove(0);
-            game.start(5001);
-        }else{
+        Player player = context.sessionAttribute("user");
+        if (player == null) {
+            context.status(401).json(Map.of("error", "Not logged in"));
+            return;
+        }
+
+        // --- FIX 1: Check if game is ALREADY running for this player ---
+        if (activeGameHandler != null && activeGameHandler.players.containsKey(player)) {
+            // Player is re-connecting or polling for status
+            Map<Player, String> assignments = activeGameHandler.players;
+
+            // Find who is who
+            String whiteName = "", blackName = "";
+            for (Map.Entry<Player, String> entry : assignments.entrySet()) {
+                if (entry.getValue().equals("w")) whiteName = entry.getKey().getUsername();
+                else blackName = entry.getKey().getUsername();
+            }
+
+            context.json(Map.of(
+                    "status", "match_started",
+                    "white", whiteName,
+                    "black", blackName,
+                    "port", 5001
+            ));
+            return; // EXIT HERE so we don't re-add to queue
+        }
+
+        // --- FIX 2: Only add to queue if not already there ---
+        if (!playersReadyForGame.contains(player)) {
+            playersReadyForGame.add(player);
+        }
+
+        // --- FIX 3: Start Game if 2 players ready ---
+        if (playersReadyForGame.size() >= 2) {
+            Player p1 = playersReadyForGame.remove(0);
+            Player p2 = playersReadyForGame.remove(0);
+
+            if (activeGameHandler != null) {
+                activeGameHandler.stop(); // Stop previous game if exists
+            }
+
+            activeGameHandler = new chessMatchHandler(p1, p2);
+            activeGameHandler.start(5001);
+
+            Map<Player, String> assignments = activeGameHandler.players;
+            String whiteName = assignments.get(p1).equals("w") ? p1.getUsername() : p2.getUsername();
+            String blackName = assignments.get(p1).equals("b") ? p1.getUsername() : p2.getUsername();
+
+            context.json(Map.of(
+                    "status", "match_started",
+                    "white", whiteName,
+                    "black", blackName,
+                    "port", 5001
+            ));
+        } else {
             context.json(Map.of("status", "waiting for player"));
         }
     }
-
-    /**
-     * Make a move on the board
-     *
-     * @param context The Javalin Context for the HTTP POST Request
-     */
-
-
-//    public static void newGame(Context context, Board board){
-//        chessMatchHandler.main(null);
-//    }
-
-
 }

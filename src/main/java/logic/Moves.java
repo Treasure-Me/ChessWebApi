@@ -1,257 +1,118 @@
 package logic;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 public class Moves {
-    private static final ArrayList<String> blackPieces = new ArrayList<>(List.of("r","n","k","q","p","b"));
-    private static final ArrayList<String> whitePieces = new ArrayList<>(List.of("R","N","K","Q","P","B"));
     private final String piece;
     private final Board board;
-    private static final HashMap<String, Integer> fileToColumn =
-            new HashMap<>(Map.of(
-                    "a", 0,
-                    "b", 1,
-                    "c", 2,
-                    "d", 3,
-                    "e", 4,
-                    "f", 5,
-                    "g", 6,
-                    "h", 7
-            ));
 
-    public Moves(String piece, Board board){
+    public Moves(String piece, Board board) {
         this.board = board;
         this.piece = piece;
     }
 
-    public static <K, V> K findKeyByValue(Map<K, V> map, V value) {
-        for (Map.Entry<K, V> entry : map.entrySet()) {
-            if (entry.getValue().equals(value)) {
-                return entry.getKey();
-            }
-        }
-        return null;
+    private Integer[][] processMoves(String from, String to) {
+        Integer[] f = board.processFileAndRank(from);
+        Integer[] t = board.processFileAndRank(to);
+        return new Integer[][]{{f[0], f[1]}, {t[0], t[1]}};
     }
 
-    private boolean liesInRange(String fromSquare, String toSquare, String pieceSquare) {
-        String fromXLetter = String.valueOf(fromSquare.charAt(0));
-        int fromX = fileToColumn.get(fromXLetter);
-        int fromY = fromSquare.charAt(1) - '0';
+    /**
+     * Safety check for blocked paths (Rook/Bishop/Queen).
+     */
+    public boolean pieceInRange(String from, String to) {
+        Integer[][] m = processMoves(from, to);
+        int x1 = m[0][0], y1 = m[0][1];
+        int x2 = m[1][0], y2 = m[1][1];
 
-        String toXLetter = String.valueOf(toSquare.charAt(0));
-        int toX = fileToColumn.get(toXLetter);
-        int toY = toSquare.charAt(1) - '0';
+        // Only valid for straight or diagonal lines
+        if (x1 != x2 && y1 != y2 && Math.abs(x2 - x1) != Math.abs(y2 - y1)) return false;
 
-        String pieceXLetter = String.valueOf(pieceSquare.charAt(0));
-        int pieceX = fileToColumn.get(pieceXLetter);
-        int pieceY = pieceSquare.charAt(1) - '0';
+        int dx = Integer.compare(x2, x1);
+        int dy = Integer.compare(y2, y1);
 
-        // Check if pieceSquare is collinear with fromSquare and toSquare
-        if (fromX == toX && fromX == pieceX) {
-            // Vertical line - check if pieceY is between fromY and toY
-            return (fromY < pieceY && pieceY < toY) || (toY < pieceY && pieceY < fromY);
-        } else if (fromY == toY && fromY == pieceY) {
-            // Horizontal line - check if pieceX is between fromX and toX
-            return (fromX < pieceX && pieceX < toX) || (toX < pieceX && pieceX < fromX);
-        } else if (Math.abs(fromX - toX) == Math.abs(fromY - toY) &&
-                Math.abs(fromX - pieceX) == Math.abs(fromY - pieceY)) {
-            // Diagonal line - check if piece is between the endpoints
-            boolean xBetween = (fromX < pieceX && pieceX < toX) || (toX < pieceX && pieceX < fromX);
-            boolean yBetween = (fromY < pieceY && pieceY < toY) || (toY < pieceY && pieceY < fromY);
-            return xBetween && yBetween;
+        int currX = x1 + dx;
+        int currY = y1 + dy;
+
+        while (currX != x2 || currY != y2) {
+            // Out of bounds check
+            if (currX < 0 || currX > 7 || currY < 0 || currY > 7) return false;
+
+            String p = board.getSquares()[currY][currX].trim();
+            if (!p.equals("o") && !p.equals("x") && !p.isEmpty()) return true;
+
+            currX += dx;
+            currY += dy;
         }
-
         return false;
     }
 
-    public boolean pieceInRange(String fromSquare, String toSquare){
-        for (String blackPiece : blackPieces) {
-            ArrayList<String> pieceSquares = board.getPiecePositions(blackPiece);
-            for (String pos: pieceSquares){
-                if (liesInRange(fromSquare,toSquare, pos)){
-                    return true;
-                }
+    public boolean rookMove(String from, String to) {
+        Integer[][] m = processMoves(from, to);
+        if (m[0][0] != m[1][0] && m[0][1] != m[1][1]) return false;
+        return !pieceInRange(from, to);
+    }
+
+    public boolean bishopMove(String from, String to) {
+        Integer[][] m = processMoves(from, to);
+        if (Math.abs(m[0][0] - m[1][0]) != Math.abs(m[0][1] - m[1][1])) return false;
+        return !pieceInRange(from, to);
+    }
+
+    public boolean queenMove(String from, String to) {
+        return rookMove(from, to) || bishopMove(from, to);
+    }
+
+    public boolean knightMove(String from, String to) {
+        Integer[][] m = processMoves(from, to);
+        int dx = Math.abs(m[0][0] - m[1][0]);
+        int dy = Math.abs(m[0][1] - m[1][1]);
+        return (dx == 2 && dy == 1) || (dx == 1 && dy == 2);
+    }
+
+    public boolean kingMove(String from, String to) {
+        Integer[][] m = processMoves(from, to);
+        int dx = Math.abs(m[0][0] - m[1][0]);
+        int dy = Math.abs(m[0][1] - m[1][1]);
+        return dx <= 1 && dy <= 1;
+    }
+
+    public boolean pawnMove(String from, String to) {
+        Integer[][] m = processMoves(from, to);
+        int startCol = m[0][0], startRow = m[0][1];
+        int endCol = m[1][0], endRow = m[1][1];
+        int colDiff = Math.abs(endCol - startCol);
+
+        String target = board.getSquare(to);
+        boolean occupied = !target.equals("o") && !target.equals("x") && !target.isEmpty();
+
+        if (piece.equals("P")) { // WHITE (Moves Up -> Decreasing Row Index)
+            int rowDiff = startRow - endRow; // Positive value means moving up
+
+            // 1. Single Step
+            if (colDiff == 0 && rowDiff == 1 && !occupied) return true;
+
+            // 2. Double Step (From Rank 2 = Index 6)
+            if (colDiff == 0 && rowDiff == 2 && startRow == 6 && !occupied) {
+                String mid = board.getSquares()[5][startCol].trim();
+                return mid.equals("o") || mid.equals("x") || mid.isEmpty();
             }
-        }
 
-        for (String whitePiece : whitePieces) {
-            ArrayList<String> pieceSquares = board.getPiecePositions(whitePiece);
-            for (String pos: pieceSquares){
-                if (liesInRange(fromSquare,toSquare, pos)){
-                    return true;
-                }
+            // 3. Capture
+            if (colDiff == 1 && rowDiff == 1 && occupied) return true;
+
+        } else if (piece.equals("p")) { // BLACK (Moves Down -> Increasing Row Index)
+            int rowDiff = endRow - startRow; // Positive value means moving down
+
+            // 1. Single Step
+            if (colDiff == 0 && rowDiff == 1 && !occupied) return true;
+
+            // 2. Double Step (From Rank 7 = Index 1)
+            if (colDiff == 0 && rowDiff == 2 && startRow == 1 && !occupied) {
+                String mid = board.getSquares()[2][startCol].trim();
+                return mid.equals("o") || mid.equals("x") || mid.isEmpty();
             }
-        }
 
-        return false;
-    }
-
-    private Integer[][] processMoves(String fromSquare, String toSquare){
-        String fromSquareFileString = String.valueOf(fromSquare.charAt(0));
-        int fromSquareRank = 8 - Integer.parseInt(String.valueOf(fromSquare.charAt(1))); // Fixed: convert to array index
-        int fromSquareFile = fileToColumn.get(fromSquareFileString);
-
-        String toSquareFileString = String.valueOf(toSquare.charAt(0));
-        int toSquareRank = 8 - Integer.parseInt(String.valueOf(toSquare.charAt(1))); // Fixed: convert to array index
-        int toSquareFile = fileToColumn.get(toSquareFileString);
-
-        return new Integer[][]{{fromSquareRank, fromSquareFile},{toSquareRank, toSquareFile}};
-    }
-
-    public boolean queenMove(String fromSquare, String toSquare){
-        if (pieceInRange(fromSquare,toSquare)){
-            return false;
-        }
-
-        if (!piece.equalsIgnoreCase("q")){
-            return false;
-        } else if (fromSquare.equals(toSquare)) {
-            return false;
-        }
-
-        Integer[][] processedMoves = processMoves(fromSquare, toSquare);
-
-        int fromSquareRank = processedMoves[0][0];
-        int fromSquareFile = processedMoves[0][1];
-        int toSquareRank = processedMoves[1][0];
-        int toSquareFile = processedMoves[1][1];
-
-        return (fromSquareFile - toSquareFile == 0) || (fromSquareRank - toSquareRank == 0) || (Math.abs(fromSquareFile-toSquareFile) == Math.abs(fromSquareRank-toSquareRank));
-    }
-
-    public boolean knightMove(String fromSquare, String toSquare){
-        if (pieceInRange(fromSquare,toSquare)){
-            return false;
-        }
-
-        if (!piece.equalsIgnoreCase("n")){
-            return false;
-        } else if (fromSquare.equals(toSquare)) {
-            return false;
-        }
-
-        Integer[][] processedMoves = processMoves(fromSquare, toSquare);
-
-        int fromSquareRank = processedMoves[0][0];
-        int fromSquareFile = processedMoves[0][1];
-        int toSquareRank = processedMoves[1][0];
-        int toSquareFile = processedMoves[1][1];
-
-        int fileDiff = Math.abs(fromSquareFile - toSquareFile);
-        int rankDiff = Math.abs(fromSquareRank - toSquareRank);
-        return (fileDiff == 2 && rankDiff == 1) || (fileDiff == 1 && rankDiff == 2); // Fixed: correct knight L-shape
-    }
-
-    public boolean bishopMove(String fromSquare, String toSquare){
-        if (pieceInRange(fromSquare,toSquare)){
-            return false;
-        }
-
-        if (!piece.equalsIgnoreCase("b")){
-            return false;
-        } else if (fromSquare.equals(toSquare)) {
-            return false;
-        }
-
-        Integer[][] processedMoves = processMoves(fromSquare, toSquare);
-
-        int fromSquareRank = processedMoves[0][0];
-        int fromSquareFile = processedMoves[0][1];
-        int toSquareRank = processedMoves[1][0];
-        int toSquareFile = processedMoves[1][1];
-
-        return (Math.abs(fromSquareFile-toSquareFile) == Math.abs(fromSquareRank-toSquareRank));
-    }
-
-    public boolean rookMove(String fromSquare, String toSquare){
-        if (pieceInRange(fromSquare,toSquare)){
-            return false;
-        }
-
-        if (!piece.equalsIgnoreCase("r")){
-            return false;
-        } else if (fromSquare.equals(toSquare)) {
-            return false;
-        }
-
-        Integer[][] processedMoves = processMoves(fromSquare, toSquare);
-
-        int fromSquareRank = processedMoves[0][0];
-        int fromSquareFile = processedMoves[0][1];
-        int toSquareRank = processedMoves[1][0];
-        int toSquareFile = processedMoves[1][1];
-
-        return (fromSquareFile == toSquareFile && fromSquareRank != toSquareRank) ||
-                (fromSquareFile != toSquareFile && fromSquareRank == toSquareRank); // Simplified
-    }
-
-    public boolean kingMove(String fromSquare, String toSquare){
-        if (pieceInRange(fromSquare,toSquare)){
-            return false;
-        }
-
-        if (!piece.equalsIgnoreCase("k")){
-            return false;
-        } else if (fromSquare.equals(toSquare)) {
-            return false;
-        }
-
-        Integer[][] processedMoves = processMoves(fromSquare, toSquare);
-
-        int fromSquareRank = processedMoves[0][0];
-        int fromSquareFile = processedMoves[0][1];
-        int toSquareRank = processedMoves[1][0];
-        int toSquareFile = processedMoves[1][1];
-
-        int fileDiff = Math.abs(fromSquareFile - toSquareFile);
-        int rankDiff = Math.abs(fromSquareRank - toSquareRank);
-        return fileDiff <= 1 && rankDiff <= 1 && !(fileDiff == 0 && rankDiff == 0); // Fixed: simplified king movement
-    }
-
-    public boolean pawnMove(String fromSquare, String toSquare){
-        if (pieceInRange(fromSquare,toSquare)){
-            return false;
-        }
-
-        if (!piece.equalsIgnoreCase("p")){
-            return false;
-        } else if (fromSquare.equals(toSquare)) {
-            return false;
-        }
-
-        Integer[][] processedMoves = processMoves(fromSquare, toSquare);
-
-        int fromSquareRank = processedMoves[0][0];
-        int fromSquareFile = processedMoves[0][1];
-        int toSquareRank = processedMoves[1][0];
-        int toSquareFile = processedMoves[1][1];
-
-        int fileDiff = Math.abs(fromSquareFile - toSquareFile);
-        int rankDiff = fromSquareRank - toSquareRank; // Positive for white, negative for black
-
-        if (piece.equals("P")){ // White pawn
-            // Forward move (1 or 2 squares from starting position)
-            if (fileDiff == 0 && toSquareFile == fromSquareFile) {
-                if (rankDiff == 1) {
-                    return true; // Single square forward
-                } else if (rankDiff == 2 && fromSquareRank == 6) {
-                    return true; // Double square from starting position
-                }
-            }
-            // TODO: Add capture logic and en passant
-        } else if (piece.equals("p")) { // Black pawn
-            // Forward move (1 or 2 squares from starting position)
-            if (fileDiff == 0 && toSquareFile == fromSquareFile) {
-                if (rankDiff == -1) {
-                    return true; // Single square forward
-                } else if (rankDiff == -2 && fromSquareRank == 1) {
-                    return true; // Double square from starting position
-                }
-            }
-            // TODO: Add capture logic and en passant
+            // 3. Capture
+            if (colDiff == 1 && rowDiff == 1 && occupied) return true;
         }
 
         return false;
