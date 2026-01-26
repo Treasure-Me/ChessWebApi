@@ -33,12 +33,12 @@ public class ChessServerAPI {
                     logger.info("Request: {} {}", ctx.method(), ctx.url());
                 });
 
-        // --- Routes ---
         this.server.post("/api/new-game", ChessApiHandler::newMatch);
         this.server.post("/api/login", ChessApiHandler::login);
         this.server.post("/api/login/guest", ChessApiHandler::loginGuest);
         this.server.get("/api/user", ChessApiHandler::getPlayerLoggedIn);
         this.server.get("/", ChessApiHandler::loadLoginPage);
+        this.server.post("/api/resign", ChessApiHandler::resignMatch);
 
         this.server.get("/api/health", ctx -> {
             ctx.json(Map.of(

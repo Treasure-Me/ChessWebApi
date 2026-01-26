@@ -65,7 +65,9 @@ class ChessEngineAPI {
 
     static async resignGame() {
         try {
-            const response = await fetch(`${this.matchURL}/api/resign`, {
+            // CHANGE: Use baseURL (5000) instead of matchURL (5001)
+            // This ensures the session cookie is valid
+            const response = await fetch(`${this.baseURL}/api/resign`, {
                 method: 'POST'
             });
             if (!response.ok) throw new Error(`Resign failed: ${response.status}`);

@@ -24,7 +24,6 @@ public class chessMatchHandler {
         this.id = UUID.randomUUID();
 
         server = Javalin.create(config -> {
-                    // Enable CORS so Port 5000 (Frontend) can fetch data from Port 5001 (Backend)
                     config.bundledPlugins.enableCors(cors -> {
                         cors.addRule(it -> {
                             it.reflectClientOrigin = true;
@@ -39,12 +38,9 @@ public class chessMatchHandler {
 
         this.server.post("/api/move", this::sendMove);
         this.server.post("/api/legal-moves", this::legalMoves);
-        // We reuse /api/load-fen for state polling
         this.server.post("/api/load-fen", this::loadGameState);
-        this.server.post("/api/resign", this::resignGame);
     }
 
-    // Called by JS Polling Interval
     private void loadGameState(Context context) {
         String turn = board.getFENStringPosition().split(" ")[1];
 
@@ -57,15 +53,12 @@ public class chessMatchHandler {
     }
 
     private void legalMoves(Context context) {
-        // Read JSON body
         var body = context.bodyAsClass(Map.class);
         String fromSquare = (String) body.get("square");
         String pieceType = (String) body.get("piece");
 
-        // Generate destinations
         ArrayList<String> destinations = ChessGame.generateAllPossibleMoves(board, fromSquare, pieceType);
 
-        // Transform for Frontend: ["e4"] -> [{"from":"e2", "to":"e4"}]
         List<Map<String, String>> movesForFrontend = new ArrayList<>();
         for (String dest : destinations) {
             movesForFrontend.add(Map.of("from", fromSquare, "to", dest));
@@ -99,44 +92,30 @@ public class chessMatchHandler {
         }
     }
 
-    private void resignGame(Context context) {
-        // 1. Identify who is trying to resign
-        Player resigningPlayer = context.sessionAttribute("user");
-
-        if (resigningPlayer == null) {
-            context.status(401).json(Map.of("error", "Not logged in"));
-            return;
-        }
-
-        // 2. Find their color in this specific match
+    public boolean processResignation(Player resigningPlayer) {
         String resigningColor = null;
-
-        // We compare Usernames to be safe (in case session objects differ in memory)
         for (Map.Entry<Player, String> entry : players.entrySet()) {
             if (entry.getKey().getUsername().equals(resigningPlayer.getUsername())) {
-                resigningColor = entry.getValue(); // "w" or "b"
+                resigningColor = entry.getValue();
                 break;
             }
         }
 
-        if (resigningColor == null) {
-            context.status(403).json(Map.of("error", "You are not a player in this match"));
-            return;
-        }
+        if (resigningColor == null) return false;
 
-        // 3. Determine Winner (Opposite of whoever resigned)
         String winner = resigningColor.equals("w") ? "Black" : "White";
         String loser = resigningColor.equals("w") ? "White" : "Black";
 
-        // 4. Update Game State
         board.setGameState("Game Over: " + winner + " wins! (" + loser + " resigned)");
-
-        // 5. Send success response (Polling will handle the UI update for the other player)
-        context.json(Map.of("success", true));
+        return true;
     }
 
     public UUID getGameId(){
         return id;
+    }
+
+    public Board getBoard(){
+        return board;
     }
 
     public void start(int port) {

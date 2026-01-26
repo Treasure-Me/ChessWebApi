@@ -3,6 +3,7 @@ package API;
 import API.utility.Player;
 import API.utility.PlayerDaoImplementation;
 import io.javalin.http.Context;
+import logic.Board;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
@@ -13,7 +14,6 @@ public class ChessApiHandler {
 
     public static ArrayList<Player> playersLoggedIn = new ArrayList<>();
     private static ArrayList<Player> playersReadyForGame = new ArrayList<>();
-    // Keep track of the running game
     private static chessMatchHandler activeGameHandler;
 
     public static void login(Context context) {
@@ -56,11 +56,9 @@ public class ChessApiHandler {
 
     public static void loginGuest(Context context) {
         UUID guestID = UUID.randomUUID();
-        // Use first 8 chars for cleaner guest names
         String username = "Guest-" + guestID.toString().substring(0, 8);
         try {
             Player player = new Player(guestID);
-            // Note: Ideally set the username on the player object here if your Player class supports it
 
             context.sessionAttribute("user", player);
             context.json(Map.of(
@@ -97,39 +95,38 @@ public class ChessApiHandler {
             return;
         }
 
-        // --- FIX 1: Check if game is ALREADY running for this player ---
         if (activeGameHandler != null && activeGameHandler.players.containsKey(player)) {
-            // Player is re-connecting or polling for status
             Map<Player, String> assignments = activeGameHandler.players;
 
-            // Find who is who
-            String whiteName = "", blackName = "";
-            for (Map.Entry<Player, String> entry : assignments.entrySet()) {
-                if (entry.getValue().equals("w")) whiteName = entry.getKey().getUsername();
-                else blackName = entry.getKey().getUsername();
-            }
+            Board gameBoard = activeGameHandler.getBoard();
 
-            context.json(Map.of(
-                    "status", "match_started",
-                    "white", whiteName,
-                    "black", blackName,
-                    "port", 5001
-            ));
-            return; // EXIT HERE so we don't re-add to queue
+            if (gameBoard.getGameState().equals("ongoing")){
+                String whiteName = "", blackName = "";
+                for (Map.Entry<Player, String> entry : assignments.entrySet()) {
+                    if (entry.getValue().equals("w")) whiteName = entry.getKey().getUsername();
+                    else blackName = entry.getKey().getUsername();
+                }
+
+                context.json(Map.of(
+                        "status", "match_started",
+                        "white", whiteName,
+                        "black", blackName,
+                        "port", 5001
+                ));
+                return;
+            }
         }
 
-        // --- FIX 2: Only add to queue if not already there ---
         if (!playersReadyForGame.contains(player)) {
             playersReadyForGame.add(player);
         }
 
-        // --- FIX 3: Start Game if 2 players ready ---
         if (playersReadyForGame.size() >= 2) {
             Player p1 = playersReadyForGame.remove(0);
             Player p2 = playersReadyForGame.remove(0);
 
             if (activeGameHandler != null) {
-                activeGameHandler.stop(); // Stop previous game if exists
+                activeGameHandler.stop();
             }
 
             activeGameHandler = new chessMatchHandler(p1, p2);
@@ -148,5 +145,30 @@ public class ChessApiHandler {
         } else {
             context.json(Map.of("status", "waiting for player"));
         }
+    }
+
+    public static void resignMatch(Context context) {
+        Player player = context.sessionAttribute("user");
+        if (player == null) {
+            context.status(401).json(Map.of("error", "Not logged in"));
+            return;
+        }
+
+        if (activeGameHandler == null) {
+            context.status(400).json(Map.of("error", "No active game found"));
+            return;
+        }
+
+        boolean success = activeGameHandler.processResignation(player);
+
+        if (success) {
+            context.json(Map.of("success", true));
+        } else {
+            context.status(403).json(Map.of("error", "You are not part of the active game"));
+        }
+    }
+
+    public static void stopMatch(){
+        activeGameHandler.stop();
     }
 }
