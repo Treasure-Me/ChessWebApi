@@ -41,6 +41,7 @@ public class chessMatchHandler {
         this.server.post("/api/legal-moves", this::legalMoves);
         // We reuse /api/load-fen for state polling
         this.server.post("/api/load-fen", this::loadGameState);
+        this.server.post("/api/resign", this::resignGame);
     }
 
     // Called by JS Polling Interval
@@ -96,6 +97,42 @@ public class chessMatchHandler {
                     "message", board.getGameState()
             ));
         }
+    }
+
+    private void resignGame(Context context) {
+        // 1. Identify who is trying to resign
+        Player resigningPlayer = context.sessionAttribute("user");
+
+        if (resigningPlayer == null) {
+            context.status(401).json(Map.of("error", "Not logged in"));
+            return;
+        }
+
+        // 2. Find their color in this specific match
+        String resigningColor = null;
+
+        // We compare Usernames to be safe (in case session objects differ in memory)
+        for (Map.Entry<Player, String> entry : players.entrySet()) {
+            if (entry.getKey().getUsername().equals(resigningPlayer.getUsername())) {
+                resigningColor = entry.getValue(); // "w" or "b"
+                break;
+            }
+        }
+
+        if (resigningColor == null) {
+            context.status(403).json(Map.of("error", "You are not a player in this match"));
+            return;
+        }
+
+        // 3. Determine Winner (Opposite of whoever resigned)
+        String winner = resigningColor.equals("w") ? "Black" : "White";
+        String loser = resigningColor.equals("w") ? "White" : "Black";
+
+        // 4. Update Game State
+        board.setGameState("Game Over: " + winner + " wins! (" + loser + " resigned)");
+
+        // 5. Send success response (Polling will handle the UI update for the other player)
+        context.json(Map.of("success", true));
     }
 
     public UUID getGameId(){

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Chess - Playing</title>
+    <link rel="stylesheet" href="styles/styles.css">
+</head>
+<body>
+<div class="chess-container">
+    <header class="header">
+        <h1>♛ Chess Api</h1>
+        <h2 class="username">Guest</h2>
+        <div class="game-info">
+            <div id="sync-status" style="width: 10px; height: 10px; background: gray; border-radius: 50%; display: inline-block; margin-right: 10px;" title="Connection Status"></div>
+            <span id="player-turn">Connecting...</span>
+            <span id="game-status" style="margin-left: 15px; color: #aaa;"></span>
+        </div>
+    </header>
+
+    <div class="main-content">
+        <div class="chess-board" id="chess-board">
+        </div>
+
+        <div class="control-panel">
+            <div class="move-controls">
+                <button id="resign" class="btn btn-danger">Resign</button>
+                <button id="home" class="btn btn-secondary" onclick="window.location.href='home.html'">Home</button>
+            </div>
+
+            <div class="move-history">
+                <h3>Move History</h3>
+                <div id="move-list" class="move-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="game-over-modal">
+        <div class="modal-content">
+            <h2 id="modal-title">Game Over</h2>
+            <p id="modal-message"></p>
+            <button id="modal-new-game" class="btn btn-primary">Play Again</button>
+            <button id="modal-home" class="btn btn-secondary" onclick="window.location.href='home.html'">Home</button>
+        </div>
+    </div>
+</div>
+
+<script src="scripts/chess-engine-api.js"></script>
+<script src="scripts/chess-ui.js"></script>
+</body>
+</html>

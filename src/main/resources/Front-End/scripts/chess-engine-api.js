@@ -63,6 +63,19 @@ class ChessEngineAPI {
         }
     }
 
+    static async resignGame() {
+        try {
+            const response = await fetch(`${this.matchURL}/api/resign`, {
+                method: 'POST'
+            });
+            if (!response.ok) throw new Error(`Resign failed: ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            throw error;
+        }
+    }
+
     static async getLoggedInUser() {
         try {
             const response = await fetch(`${this.baseURL}/api/user`);
