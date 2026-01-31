@@ -3,9 +3,8 @@ class ChessUI {
         this.boardElement = document.getElementById('chess-board');
         this.currentPage = window.location.pathname.includes('game.html') ? 'game' : 'home';
 
-        // State
         this.selectedSquare = null;
-        this.legalMoves = []; // Now stores Strings: ["e3", "e4"]
+        this.legalMoves = [];
         this.currentBoard = this.getInitialBoard();
         this.currentPlayer = 'white';
         this.myColor = null;
@@ -28,8 +27,6 @@ class ChessUI {
         }
     }
 
-    // --- SETUP ---
-
     setupCommonListeners() {}
 
     async fetchAndSetUsername() {
@@ -40,8 +37,6 @@ class ChessUI {
             if (el) el.innerText = this.currentUsername;
         } catch (e) { console.error(e); }
     }
-
-    // --- HOME PAGE ---
 
     initHomePage() {
         const btn = document.getElementById('menu-new-game');
@@ -59,8 +54,6 @@ class ChessUI {
             });
         }
     }
-
-    // --- GAME PAGE ---
 
     initGamePage() {
         const resignBtn = document.getElementById('resign');
@@ -143,7 +136,6 @@ class ChessUI {
         }, 500);
     }
 
-    // --- INTERACTION ---
 
     async handleSquareClick(row, col) {
         if (this.myColor !== 'spectator' && this.myColor !== this.currentPlayer) return;
@@ -154,7 +146,6 @@ class ChessUI {
         if (this.selectedSquare) {
             const [selectedRow, selectedCol] = this.selectedSquare;
 
-            // FIX: Check if 'position' exists in the array of strings
             const isLegalMove = this.legalMoves.includes(position);
 
             if (isLegalMove) {
@@ -184,7 +175,6 @@ class ChessUI {
         const square = document.querySelector(`.square[data-row="${row}"][data-col="${col}"]`);
         if(square) square.classList.add('selected');
 
-        // Fetch moves
         const moves = await ChessEngineAPI.getLegalMoves(this.getSquareNotation(row, col), piece);
         this.legalMoves = moves || [];
         this.highlightLegalMoves();
@@ -192,7 +182,6 @@ class ChessUI {
 
     highlightLegalMoves() {
         this.legalMoves.forEach(moveNotation => {
-            // FIX: 'moveNotation' is just a string "e4", not an object
             const [row, col] = this.getRowColFromNotation(moveNotation);
             const sq = document.querySelector(`.square[data-row="${row}"][data-col="${col}"]`);
             if (sq) {
@@ -202,14 +191,11 @@ class ChessUI {
         });
     }
 
-    // --- HELPERS ---
-
     async makeMove(from, to) {
         const result = await ChessEngineAPI.makeMove(from, to);
         if (result.success) {
             this.updateBoardState(result.newBoard);
         } else {
-            // alert("Invalid Move: " + result.message);
         }
     }
 

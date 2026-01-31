@@ -35,6 +35,7 @@ public class ChessServerAPI {
 
         this.server.post("/api/new-game", ChessApiHandler::newMatch);
         this.server.post("/api/login", ChessApiHandler::login);
+        this.server.post("/api/create-account", ChessApiHandler::createAccount);
         this.server.post("/api/login/guest", ChessApiHandler::loginGuest);
         this.server.get("/api/user", ChessApiHandler::getPlayerLoggedIn);
         this.server.get("/", ChessApiHandler::loadLoginPage);
@@ -61,8 +62,10 @@ public class ChessServerAPI {
         Player player2 = new Player("lukhoziarthur@mail.com", "Arturito", "123456");
         Player player3 = new Player("makamogugulakhe@mail.com", "optimusPrime", "IIIIIIIVVVI");
         Player player4 = new Player("donavanmakgokga@mail.com", "Don", "Nkunzebomvu");
+        Player player5 = new Player("test1@mail.com", "Prototype1", "123456");
+        Player player6 = new Player("test2@mail.com", "Prototype2", "123456");
 
-        Stream.of(player1, player2, player3, player4).forEach(PlayerDaoImplementation::savePlayer);
+        Stream.of(player1, player2, player3, player4, player5, player6).forEach(PlayerDaoImplementation::savePlayer);
     }
 
     public static void main(String[] args) {

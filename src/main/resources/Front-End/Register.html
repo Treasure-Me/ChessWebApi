@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chess Server - Login</title>
+    <title>Chess Server - Register</title>
     <style>
         body {
             font-family: 'Segoe UI', sans-serif;
@@ -51,7 +51,7 @@
         }
 
         .form-group input {
-            width: 100%;
+            width: 93%;
             padding: 12px;
             border: 2px solid #ddd;
             border-radius: 5px;
@@ -77,12 +77,12 @@
         }
 
         .btn-primary {
-            background: #2980b9;
+            background: #27ae60;
             color: white;
         }
 
         .btn-primary:hover {
-            background: #3498db;
+            background: #2ecc71;
         }
 
         .btn-secondary {
@@ -117,18 +117,24 @@
             position: relative;
         }
 
-        .guest-info {
-            background: #f8f9fa;
-            padding: 15px;
+        .error-message {
+            background: #ffebee;
+            color: #c0392b;
+            padding: 10px;
             border-radius: 5px;
-            margin-top: 20px;
-            border-left: 4px solid #2ecc71;
+            margin-bottom: 20px;
+            display: none;
+            text-align: center;
         }
 
-        .guest-info p {
-            margin: 0;
+        .success-message {
+            background: #e8f8f5;
             color: #27ae60;
-            font-size: 14px;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+            text-align: center;
         }
 
         .server-status {
@@ -139,55 +145,51 @@
             color: #7f8c8d;
             font-size: 14px;
         }
-
-        .error-message {
-            background: #ffebee;
-            color: #c0392b;
-            padding: 10px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            display: none;
-        }
     </style>
 </head>
 <body>
 <div class="login-container">
     <div class="header">
-        <h1>♔ Chess World</h1>
-        <p class="subtitle">Play chess online with friends</p>
+        <h1>♔ Join Chess World</h1>
+        <p class="subtitle">Note that your account will not be permanently stored, thus will not exist after 15 minutes of no one using the site. This is deliberate as this is a test release. Updates coming in soon.</p>
     </div>
 
     <div id="errorMessage" class="error-message"></div>
+    <div id="successMessage" class="success-message"></div>
 
-    <!-- Login Form -->
-    <form id="loginForm">
+    <form id="registerForm">
         <div class="form-group">
-            <label for="username">Username</label>
+            <label for="username">Choose Username</label>
             <input type="text" id="username" name="username" required>
         </div>
 
         <div class="form-group">
-            <label for="password">Password</label>
-            <input type="password" id="password" name="password">
-            <small style="color: #7f8c8d; font-size: 12px;">Leave blank for guest login</small>
+            <label for="email">Enter your email</label>
+            <input type="email" id="email" name="email" required>
+        </div>
+
+        <div class="form-group">
+            <label for="password">Create password</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+
+        <div class="form-group">
+            <label for="confirmPassword">Confirm Password</label>
+            <input type="password" id="confirmPassword" name="confirmPassword" required>
         </div>
 
         <button type="submit" class="btn btn-primary">
-            Login
+            Create Account
         </button>
     </form>
 
-    <button id="registerBtn" class="btn btn-secondary">
-        Register
-    </button>
-
-    <button id="quickGuestBtn" class="btn btn-secondary">
-        Quick Guest Login
-    </button>
-
-    <div class="guest-info">
-        <p>Guest players get a random username and can play immediately. No password needed.</p>
+    <div class="divider">
+        <span>OR</span>
     </div>
+
+    <button id="backToLoginBtn" class="btn btn-secondary">
+        Back to Login
+    </button>
 
     <div class="server-status">
         <span id="serverStatus">Connecting to server...</span>
@@ -197,46 +199,61 @@
 <script>
     function showError(message) {
         const errorDiv = document.getElementById('errorMessage');
+        const successDiv = document.getElementById('successMessage');
         errorDiv.textContent = message;
         errorDiv.style.display = 'block';
+        successDiv.style.display = 'none';
     }
 
-    function hideError() {
+    function showSuccess(message) {
+        const errorDiv = document.getElementById('errorMessage');
+        const successDiv = document.getElementById('successMessage');
+        successDiv.textContent = message;
+        successDiv.style.display = 'block';
+        errorDiv.style.display = 'none';
+    }
+
+    function hideMessages() {
         document.getElementById('errorMessage').style.display = 'none';
+        document.getElementById('successMessage').style.display = 'none';
     }
 
     async function checkServerStatus() {
         try {
-            const response = await fetch('/api/health', {
-                method: 'GET'
-            });
-
+            const response = await fetch('/api/health');
             if (response.ok) {
                 const data = await response.json();
-                document.getElementById('serverStatus').textContent =
-                    `Server: Online (${data.players || 0} players)`;
-                return true;
+                document.getElementById('serverStatus').textContent = `Server: Online (${data.players || 0} players)`;
             }
         } catch (error) {
             document.getElementById('serverStatus').textContent = 'Server: Offline';
-            return false;
         }
     }
 
-    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+    document.getElementById('backToLoginBtn').addEventListener('click', () => {
+        window.location.href = '/loginPage.html';
+    });
+
+    document.getElementById('registerForm').addEventListener('submit', async function(e) {
         e.preventDefault();
-        hideError();
+        hideMessages();
 
         const username = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
 
-        if (!username) {
-            showError('Username is required');
+        if (!username || !password) {
+            showError('All fields are required');
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            showError('Passwords do not match');
             return;
         }
 
         try {
-            const response = await fetch('/api/login', {
+            const response = await fetch('/api/create-account', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
@@ -245,52 +262,20 @@
             const result = await response.json();
 
             if (result.success) {
-                window.location.href = '/home.html';
+                showSuccess('Account created! Redirecting to login...');
+                setTimeout(() => {
+                    window.location.href = '/loginPage.html';
+                }, 1500);
             } else {
-                showError(result.message);
+                showError(result.message || 'Registration failed');
             }
         } catch (error) {
-            console.error('Login error:', error);
-            showError('Network error. Please check server connection.');
-        }
-    });
-
-    document.getElementById('registerBtn').addEventListener('click', function(e) {
-        e.preventDefault()
-        hideError();
-
-        window.location.href = '/Register.html';
-    });
-
-
-    document.getElementById('quickGuestBtn').addEventListener('click', async function() {
-        hideError();
-
-        try {
-            const response = await fetch('/api/login/guest', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: ``
-            });
-
-            if (response.ok) {
-                const result = await response.json();
-                if (result.success) {
-                    window.location.href = '/home.html';
-                } else {
-                    showError('Guest login failed');
-                }
-            }
-        } catch (error) {
-            showError('Cannot connect to server');
+            console.error('Register error:', error);
+            showError('Network error. Server might be offline.');
         }
     });
 
     checkServerStatus();
-    setInterval(checkServerStatus, 30000);
-
     document.getElementById('username').focus();
 </script>
 </body>

@@ -4,8 +4,10 @@ import API.utility.Player;
 import API.utility.PlayerDaoImplementation;
 import io.javalin.http.Context;
 import logic.Board;
-import org.jetbrains.annotations.Nullable;
+
 import java.util.*;
+import java.util.stream.Stream;
+
 import static API.ChessServerAPI.logger;
 
 public class ChessApiHandler {
@@ -60,15 +62,13 @@ public class ChessApiHandler {
         }
     }
 
-    @Nullable
-    public static Player getPlayerLoggedIn(Context context) {
+    public static void getPlayerLoggedIn(Context context) {
         Player player = context.sessionAttribute("user");
         if (player != null) {
             context.json(Map.of("ok", true, "username", player.getUsername()));
         } else {
             context.status(401).json(Map.of("ok", false));
         }
-        return player;
     }
 
     public static void loadLoginPage(Context context) {
@@ -155,6 +155,29 @@ public class ChessApiHandler {
             context.json(Map.of("success", true));
         } else {
             context.status(400).json(Map.of("error", "No active game found"));
+        }
+    }
+
+    public static void createAccount(Context context) {
+        try {
+            String username = context.formParam("username");
+            String password = context.formParam("password");
+            String email = context.formParam("email");
+
+            if (username == null || username.trim().isEmpty()) {
+                context.status(400).json(Map.of("success", false, "message", "Username is required"));
+                return;
+            }
+
+            Player player = new Player(email, username, password);
+
+            PlayerDaoImplementation.savePlayer(player);
+
+            context.json(Map.of("success", true, "message", "Registration successful", "username", player.getUsername()));
+
+        } catch (Exception e) {
+            logger.error("Login error", e);
+            context.status(500).json(Map.of("success", false, "message", "Internal server error"));
         }
     }
 
