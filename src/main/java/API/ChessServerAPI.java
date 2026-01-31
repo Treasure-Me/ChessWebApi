@@ -35,6 +35,7 @@ public class ChessServerAPI {
 
         this.server.post("/api/new-game", ChessApiHandler::newMatch);
         this.server.post("/api/login", ChessApiHandler::login);
+        this.server.post("/api/logout", ChessApiHandler::logout);
         this.server.post("/api/create-account", ChessApiHandler::createAccount);
         this.server.post("/api/login/guest", ChessApiHandler::loginGuest);
         this.server.get("/api/user", ChessApiHandler::getPlayerLoggedIn);

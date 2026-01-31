@@ -8,23 +8,29 @@
 <body>
 <div class="chess-container">
     <header class="header">
-        <h1>♛ Chess Api</h1>
-        <h2 class="username">Guest</h2>
+        <h1>♛ Chess World</h1>
+        <div class="user-panel">
+            <h2 class="username">Guest</h2>
+        </div>
+
         <div class="game-info">
-            <div id="sync-status" style="width: 10px; height: 10px; background: gray; border-radius: 50%; display: inline-block; margin-right: 10px;" title="Connection Status"></div>
-            <span id="player-turn">Connecting...</span>
+            <div id="sync-status" style="width: 12px; height: 12px; background: gray; border-radius: 50%; display: inline-block; margin-right: 10px; transition: background 0.2s;" title="Connection Status"></div>
+            <div id="loading-spinner" style="display:none; color: #3498db; font-weight: bold; margin-bottom: 10px;">
+                Bot is thinking... 🤖
+            </div>
+            <span id="player-turn">Initializing...</span>
             <span id="game-status" style="margin-left: 15px; color: #aaa;"></span>
         </div>
     </header>
 
     <div class="main-content">
-        <div class="chess-board" id="chess-board">
-        </div>
+        <div class="chess-board" id="chess-board"></div>
 
         <div class="control-panel">
             <div class="move-controls">
                 <button id="resign" class="btn btn-danger">Resign</button>
                 <button id="home" class="btn btn-secondary" onclick="window.location.href='home.html'">Home</button>
+                <button id="logout-btn" class="btn btn-secondary">Log out</button>
             </div>
 
             <div class="move-history">
@@ -38,12 +44,16 @@
         <div class="modal-content">
             <h2 id="modal-title">Game Over</h2>
             <p id="modal-message"></p>
-            <button id="modal-new-game" class="btn btn-primary">Play Again</button>
-            <button id="modal-home" class="btn btn-secondary" onclick="window.location.href='home.html'">Home</button>
+            <div class="modal-buttons">
+                <button id="modal-new-game" class="btn btn-primary" onclick="location.reload()">Play Again</button>
+                <button id="modal-home" class="btn btn-secondary" onclick="window.location.href='home.html'">Home</button>
+            </div>
         </div>
     </div>
 </div>
 
+<script src="scripts/chess-utils.js"></script>
+<script src="scripts/UCIEngine.js"></script>
 <script src="scripts/chess-engine-api.js"></script>
 <script src="scripts/chess-ui.js"></script>
 </body>

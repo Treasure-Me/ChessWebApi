@@ -5,7 +5,6 @@
     <title>Chess - Home</title>
     <link rel="stylesheet" href="styles/styles.css">
     <style>
-        /* Center the menu */
         .main-content {
             display: flex;
             justify-content: center;
@@ -17,7 +16,7 @@
 <body>
 <div class="chess-container">
     <header class="header">
-        <h1>♛ Chess Api</h1>
+        <h1>♛ Chess World</h1>
         <h2 class="username">Guest</h2>
     </header>
 
@@ -26,7 +25,9 @@
             <h2 style="text-align: center; color: #ccc;">Main Menu</h2>
             <div class="move-controls" style="flex-direction: column; gap: 15px;">
                 <button id="menu-new-game" class="btn btn-primary" style="width: 100%;">New Game</button>
+                <button id="menu-play-bot" class="btn btn-primary" style="width: 100%;" onclick="window.location.href='game.html?mode=bot'">Play Bot</button>
                 <button class="btn btn-secondary" style="width: 100%; opacity: 0.5;">Settings</button>
+                <button class="btn btn-secondary" style="width: 100%; opacity: 0.5;">Log Out</button>
             </div>
         </div>
     </div>

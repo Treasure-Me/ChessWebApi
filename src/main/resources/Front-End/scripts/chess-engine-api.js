@@ -4,9 +4,14 @@ class ChessEngineAPI {
         : '';
     static activeGameId = null; // Stores the ID of the current match
 
-    static async newGame() {
+    static async newGame(isBot = false) {
         try {
-            const response = await fetch(`${this.baseURL}/api/new-game`, {
+            // Append ?bot=true if requested
+            const url = isBot
+                ? `${this.baseURL}/api/new-game?bot=true`
+                : `${this.baseURL}/api/new-game`;
+
+            const response = await fetch(url, {
                 method: 'POST'
             });
             if (!response.ok) throw new Error(`New Game failed: ${response.status}`);
@@ -96,6 +101,16 @@ class ChessEngineAPI {
             return "Guest";
         } catch (error) {
             return "Offline";
+        }
+    }
+
+    static async logout() {
+        try {
+            await fetch(`${this.baseURL}/api/logout`, { method: 'POST' });
+            return true;
+        } catch (e) {
+            console.error("Logout failed", e);
+            return false;
         }
     }
 
