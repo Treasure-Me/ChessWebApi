@@ -16,7 +16,6 @@ public class chessMatchHandler {
         this.gameId = gameId;
         this.board = new Board();
 
-        // Randomly assign White/Black
         if (Math.random() < 0.5) {
             players.put(p1, "w");
             players.put(p2, "b");
@@ -26,7 +25,6 @@ public class chessMatchHandler {
         }
     }
 
-    // --- GAME LOGIC METHODS (Called by Router) ---
 
     public Map<String, Object> getGameState() {
         return Map.of(
@@ -37,15 +35,12 @@ public class chessMatchHandler {
     }
 
     public Map<String, Object> processMove(Player player, String from, String to) {
-        // 1. Validate Player
         if (!players.containsKey(player)) return Map.of("success", false, "message", "Not a player");
 
-        // 2. Validate Turn
         String color = players.get(player);
         String fenTurn = board.getFENStringPosition().split(" ")[1];
         if (!color.equals(fenTurn)) return Map.of("success", false, "message", "Not your turn");
 
-        // 3. Make Move
         board = ChessGame.playGame(board, from + "-" + to);
 
         if (board.getGameState().startsWith("Invalid") || board.getGameState().startsWith("Illegal") || board.getGameState().startsWith("Cannot")) {

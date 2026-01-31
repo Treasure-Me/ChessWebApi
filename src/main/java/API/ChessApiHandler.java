@@ -13,8 +13,6 @@ public class ChessApiHandler {
     public static ArrayList<Player> playersLoggedIn = new ArrayList<>();
     private static ArrayList<Player> playersReadyForGame = new ArrayList<>();
 
-    // --- AUTHENTICATION METHODS ---
-
     public static void login(Context context) {
         try {
             String username = context.formParam("username");
@@ -51,9 +49,9 @@ public class ChessApiHandler {
 
     public static void loginGuest(Context context) {
         UUID guestID = UUID.randomUUID();
-        String username = "Guest-" + guestID.toString().substring(0, 8);
+        String username = "Guest-" + guestID.toString();
         try {
-            Player player = new Player(guestID); // Assuming Player constructor handles UUID
+            Player player = new Player(guestID);
             context.sessionAttribute("user", player);
             context.json(Map.of("success", true, "message", "Login successful", "username", username));
         } catch (Exception e) {
@@ -80,8 +78,6 @@ public class ChessApiHandler {
     public static void newMatch(Context context) {
         Player player = context.sessionAttribute("user");
         if (player == null) { context.status(401).json(Map.of("error", "Not logged in")); return; }
-
-        // 1. Re-join existing game
         String existingGameId = GameManager.findGameIdByPlayer(player.getUsername());
         if (existingGameId != null) {
             chessMatchHandler game = GameManager.getGame(existingGameId);
@@ -93,13 +89,9 @@ public class ChessApiHandler {
                 GameManager.removeGame(existingGameId);
             }
         }
-
-        // 2. Add to Queue
         if (!playersReadyForGame.contains(player)) {
             playersReadyForGame.add(player);
         }
-
-        // 3. Start New Match
         if (playersReadyForGame.size() >= 2) {
             Player p1 = playersReadyForGame.remove(0);
             Player p2 = playersReadyForGame.remove(0);
@@ -120,11 +112,8 @@ public class ChessApiHandler {
             if (e.getValue().equals("w")) white = e.getKey().getUsername();
             else black = e.getKey().getUsername();
         }
-        // Send gameId to frontend
         ctx.json(Map.of("status", "match_started", "white", white, "black", black, "gameId", gameId));
     }
-
-    // --- UNIVERSAL ACTION ROUTER ---
 
     public static void handleGameAction(Context context) {
         Player player = context.sessionAttribute("user");
@@ -155,8 +144,6 @@ public class ChessApiHandler {
         }
     }
 
-    // Deprecated: Only used if old frontend calls /api/resign directly without GameID
-    // Kept to prevent crashes if frontend is stale
     public static void resignMatch(Context context) {
         Player player = context.sessionAttribute("user");
         if (player == null) { context.status(401).json(Map.of("error", "Not logged in")); return; }
@@ -171,7 +158,6 @@ public class ChessApiHandler {
         }
     }
 
-    // DTOs for JSON parsing
     static class MoveRequest { public String from; public String to; }
     static class LegalRequest { public String square; public String piece; }
 }

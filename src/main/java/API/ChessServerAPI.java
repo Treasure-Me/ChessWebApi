@@ -41,8 +41,6 @@ public class ChessServerAPI {
         this.server.post("/api/resign", ChessApiHandler::resignMatch);
         this.server.post("/api/game/{gameId}/{action}", ChessApiHandler::handleGameAction);
         this.server.get("/api/game/{gameId}/state", context -> {
-            // Forward to handler treating 'state' as the action
-            // (We need to handle GET specifically or just use POST for everything for simplicity)
             String gId = context.pathParam("gameId");
             chessMatchHandler g = GameManager.getGame(gId);
             if (g != null) context.json(g.getGameState());
@@ -71,7 +69,6 @@ public class ChessServerAPI {
         ChessServerAPI server = new ChessServerAPI();
         seedDemoData();
 
-        // Google Cloud injects the PORT variable (usually 8080)
         String portStr = System.getenv("PORT");
         int port = (portStr != null) ? Integer.parseInt(portStr) : 5000;
 

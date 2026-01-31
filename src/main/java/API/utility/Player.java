@@ -14,6 +14,7 @@ public class Player {
     public Player(UUID id){
         this.id = id;
         this.username = "Guest_"+id.toString();
+        this.email = id+"@guest.chess";
     }
 
     public Player(String email,String username, String password){
