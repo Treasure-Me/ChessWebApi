@@ -17,7 +17,9 @@
 <div class="chess-container">
     <header class="header">
         <h1>♛ Chess World</h1>
-        <h2 class="username">Guest</h2>
+        <div class="user-panel">
+            <h2 class="username">Guest</h2>
+        </div>
     </header>
 
     <div class="main-content">
@@ -27,7 +29,7 @@
                 <button id="menu-new-game" class="btn btn-primary" style="width: 100%;">New Game</button>
                 <button id="menu-play-bot" class="btn btn-primary" style="width: 100%;" onclick="window.location.href='game.html?mode=bot'">Play Bot</button>
                 <button class="btn btn-secondary" style="width: 100%; opacity: 0.5;">Settings</button>
-                <button class="btn btn-secondary" style="width: 100%; opacity: 0.5;">Log Out</button>
+                <button id="logout-btn" class="btn btn-primary" style="width: 100%;">Log Out</button>
             </div>
         </div>
     </div>

@@ -23,6 +23,10 @@ class ChessUI {
         this.setupGlobalListeners();
         if (this.boardElement) this.initializeBoard();
 
+        if ( this.currentPage === 'home'){
+            await this.fetchAndSetUsername();
+        }
+
         if (this.currentPage === 'game') {
             await this.fetchAndSetUsername();
             if (this.gameMode === 'bot') {
@@ -210,9 +214,7 @@ class ChessUI {
     // --- LOGOUT & RESIGN ---
 
     async logout() {
-        // 1. Call API to clear server session
         await ChessEngineAPI.logout();
-        // 2. Redirect to Login
         window.location.href = 'loginPage.html';
     }
 
@@ -230,13 +232,11 @@ class ChessUI {
         } catch (e) { console.error(e); }
     }
 
-    // --- SETUP & HELPERS ---
-
     setupGlobalListeners() {
         const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
         bind('home', () => window.location.href = 'home.html');
         bind('resign', () => this.resign());
-        bind('logout-btn', () => this.logout()); // Bind Logout
+        bind('logout-btn', () => this.logout());
     }
 
     initHomePage() {
