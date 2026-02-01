@@ -174,7 +174,15 @@ class ChessUI {
                 this.clearSelection();
                 return;
             }
-            if (selRow === row && selCol === col) { this.clearSelection(); return; }
+            if (selRow === row && selCol === col) {
+                this.clearSelection();
+                return;
+            }
+
+            if (selRow !== row || selCol !== col) {
+                this.clearSelection();
+                return;
+            }
         }
 
         if (piece && this.isOwnPiece(piece)) {
