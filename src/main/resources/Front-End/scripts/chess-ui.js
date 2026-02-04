@@ -4,7 +4,8 @@ class ChessUI {
         this.currentPage = window.location.pathname.includes('game.html') ? 'game' : 'home';
 
         const urlParams = new URLSearchParams(window.location.search);
-        this.gameMode = urlParams.get('mode') === 'bot' ? 'bot' : 'online';
+        const modeParam = urlParams.get('mode');
+        this.gameMode = modeParam === 'bot' ? 'bot' : (modeParam === 'analysis' ? 'analysis' : 'online');
 
         this.selectedSquare = null;
         this.legalMoves = [];
@@ -16,6 +17,8 @@ class ChessUI {
         this.lobbyInterval = null;
         this.botEngine = null;
 
+        this.gameLogic = null;
+
         this.init();
     }
 
@@ -23,14 +26,17 @@ class ChessUI {
         this.setupGlobalListeners();
         if (this.boardElement) this.initializeBoard();
 
-        if ( this.currentPage === 'home'){
+        if (this.currentPage === 'home') {
             await this.fetchAndSetUsername();
         }
 
         if (this.currentPage === 'game') {
             await this.fetchAndSetUsername();
+
             if (this.gameMode === 'bot') {
                 await this.initBotMode();
+            } else if (this.gameMode === 'analysis') {
+                await this.initAnalysisMode();
             } else {
                 await this.initOnlineMode();
             }
@@ -39,16 +45,58 @@ class ChessUI {
         }
     }
 
-    // --- MODE 1: BOT ---
+    async initAnalysisMode() {
+        console.log("Initializing Analysis Mode...");
+        this.updateStatus("Analysis Mode");
+
+        if (typeof Chess !== 'undefined') {
+            this.gameLogic = new Chess();
+        } else {
+            alert("Error: chess.js library not loaded! Analysis disabled.");
+            return;
+        }
+
+        document.getElementById('eval-bar').style.display = 'block';
+        const resignBtn = document.getElementById('resign');
+        if(resignBtn) resignBtn.style.display = 'none';
+
+        const storedFen = sessionStorage.getItem('analysis_fen');
+        if (storedFen) {
+            const success = this.gameLogic.load(storedFen);
+            if (!success) alert("Invalid FEN string. Loaded default.");
+        }
+
+        this.syncBoardFromFen(this.gameLogic.fen());
+        this.currentPlayer = this.gameLogic.turn() === 'w' ? 'white' : 'black';
+        this.updatePlayerTurn();
+
+        const engineUrl = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.0/stockfish.js';
+        this.botEngine = new UCIEngine(engineUrl);
+
+        this.botEngine.worker.addEventListener('message', (e) => {
+            if (e.data === 'readyok') {
+                console.log("Engine Ready");
+                this.analyzePosition();
+            }
+        });
+
+        this.botEngine.onEvaluation = (score, isMate) => {
+            this.updateEvalBar(score, isMate);
+        };
+    }
+
     async initBotMode() {
         console.log("Initializing Bot Mode...");
         this.updateStatus("Syncing...");
+
+        if (typeof Chess !== 'undefined') {
+            this.gameLogic = new Chess();
+        }
 
         try {
             const gameData = await ChessEngineAPI.newGame(true);
             console.log("Server Game Created:", gameData);
             this.updateStatus("Loading Engine...");
-            // Start polling to get the "Green Beep" effect
             this.startPolling();
         } catch (e) {
             alert("Error: Server did not accept Bot Game.");
@@ -68,7 +116,6 @@ class ChessUI {
             const move = ChessUtils.parseMove(moveString);
             const from = this.getSquareNotation(move.from.r, move.from.c);
             const to = this.getSquareNotation(move.to.r, move.to.c);
-            console.log(`Bot moving: ${from} -> ${to}`);
             this.makeMove(from, to);
         };
     }
@@ -78,11 +125,10 @@ class ChessUI {
         const spinner = document.getElementById('loading-spinner');
         if(spinner) spinner.style.display = 'block';
 
-        const fen = ChessUtils.boardToFen(this.currentBoard);
-        setTimeout(() => this.botEngine.startThinking(fen, 1), 500);
+        const fen = this.gameLogic ? this.gameLogic.fen() : ChessUtils.boardToFen(this.currentBoard);
+        setTimeout(() => this.botEngine.startThinking(fen, 10), 500);
     }
 
-    // --- MODE 2: ONLINE ---
     async initOnlineMode() {
         this.updateStatus("Connecting...");
         try {
@@ -112,20 +158,18 @@ class ChessUI {
         this.startPolling();
     }
 
-    // --- SHARED: POLLING (The Heartbeat) ---
+    // --- SHARED: POLLING ---
     startPolling() {
         const dot = document.getElementById('sync-status');
-
         this.pollingInterval = setInterval(async () => {
             try {
-                // This keeps the board synced AND checks connection
-                const state = await ChessEngineAPI.getGameState();
+                if (this.gameMode === 'analysis') return;
 
+                const state = await ChessEngineAPI.getGameState();
                 if (state) {
-                    // 1. FLASH GREEN (The Beep)
                     if(dot) {
-                        dot.style.backgroundColor = '#0f0'; // Bright Green
-                        setTimeout(() => dot.style.backgroundColor = 'gray', 200); // Back to dim
+                        dot.style.backgroundColor = '#0f0';
+                        setTimeout(() => dot.style.backgroundColor = 'gray', 200);
                     }
 
                     if (state.newBoard) this.updateBoardState(state.newBoard);
@@ -137,26 +181,18 @@ class ChessUI {
                             this.updatePlayerTurn();
                         }
                     }
-
-                    // CHECK GAME OVER
                     if (state.status && (state.status.includes("wins") || state.status.includes("Checkmate") || state.status.includes("Game Over"))) {
                         this.showGameOverModal(state.status);
                         clearInterval(this.pollingInterval);
                     }
-                } else {
-                    // Connection lost?
-                    if(dot) dot.style.backgroundColor = 'red';
-                }
-            } catch (e) {
-                // Server down?
-                if(dot) dot.style.backgroundColor = 'red';
-            }
-        }, 1000); // Poll every 1 second
+                } else { if(dot) dot.style.backgroundColor = 'red'; }
+            } catch (e) { if(dot) dot.style.backgroundColor = 'red'; }
+        }, 1000);
     }
 
-    // --- ACTIONS ---
     async handleSquareClick(row, col) {
-        if (this.gameMode === 'online') {
+        if (this.gameMode === 'analysis') {
+        } else if (this.gameMode === 'online') {
             if (this.myColor !== 'spectator' && this.myColor !== this.currentPlayer) return;
         } else if (this.gameMode === 'bot') {
             if (this.currentPlayer !== 'white') return;
@@ -169,25 +205,31 @@ class ChessUI {
             const [selRow, selCol] = this.selectedSquare;
             const sourcePos = this.getSquareNotation(selRow, selCol);
 
-            if (this.legalMoves.includes(pos)) {
+            let isLegal = false;
+            if (this.gameMode === 'analysis' && this.gameLogic) {
+                const moves = this.gameLogic.moves({ square: sourcePos, verbose: true });
+                isLegal = moves.some(m => m.to === pos);
+            } else {
+                isLegal = this.legalMoves.includes(pos);
+            }
+
+            if (isLegal) {
                 await this.makeMove(sourcePos, pos);
                 this.clearSelection();
                 return;
             }
-            if (selRow === row && selCol === col) {
-                this.clearSelection();
-                return;
-            }
-
-            if (selRow !== row || selCol !== col) {
+            if (selRow === row && selCol === col) { this.clearSelection(); return; }
+            if (selRow !== row || selCol !== col && (!piece || !this.isOwnPiece(piece))) {
                 this.clearSelection();
                 return;
             }
         }
 
-        if (piece && this.isOwnPiece(piece)) {
-            this.clearSelection();
-            await this.selectSquare(row, col, piece);
+        if (piece) {
+            if (this.gameMode === 'analysis' || this.isOwnPiece(piece)) {
+                this.clearSelection();
+                await this.selectSquare(row, col, piece);
+            }
         }
     }
 
@@ -196,43 +238,108 @@ class ChessUI {
         const sq = document.querySelector(`.square[data-row="${row}"][data-col="${col}"]`);
         if(sq) sq.classList.add('selected');
 
-        try {
-            const moves = await ChessEngineAPI.getLegalMoves(this.getSquareNotation(row, col), piece);
-            this.legalMoves = moves || [];
+        if (this.gameMode === 'analysis' && this.gameLogic) {
+            const pos = this.getSquareNotation(row, col);
+            const moves = this.gameLogic.moves({ square: pos, verbose: true });
+            this.legalMoves = moves.map(m => m.to);
             this.highlightLegalMoves();
-        } catch (e) {}
+        } else {
+            try {
+                const moves = await ChessEngineAPI.getLegalMoves(this.getSquareNotation(row, col), piece);
+                this.legalMoves = moves || [];
+                this.highlightLegalMoves();
+            } catch (e) {}
+        }
     }
 
     async makeMove(from, to) {
-        try {
-            const result = await ChessEngineAPI.makeMove(from, to);
-            if (result.success) {
-                this.updateBoardState(result.newBoard);
+        if (this.gameMode === 'analysis' && this.gameLogic) {
+            const move = this.gameLogic.move({ from: from, to: to, promotion: 'q' });
+            if (move) {
+                this.syncBoardFromFen(this.gameLogic.fen());
                 this.addToHistory(from, to);
-                this.currentPlayer = (this.currentPlayer === 'white') ? 'black' : 'white';
+                this.currentPlayer = this.gameLogic.turn() === 'w' ? 'white' : 'black';
                 this.updatePlayerTurn();
-
-                if (this.gameMode === 'bot' && this.currentPlayer === 'black') {
-                    this.triggerBot();
-                }
+                this.analyzePosition();
             }
-        } catch (e) { console.error(e); }
+        } else {
+            try {
+                const result = await ChessEngineAPI.makeMove(from, to);
+                if (result.success) {
+                    this.updateBoardState(result.newBoard);
+                    this.addToHistory(from, to);
+
+                    if (this.gameMode === 'bot' && this.gameLogic) {
+                        this.gameLogic.move({ from: from, to: to, promotion: 'q' });
+                    }
+
+                    this.currentPlayer = (this.currentPlayer === 'white') ? 'black' : 'white';
+                    this.updatePlayerTurn();
+
+                    // If it's now the bot's turn, ask the bot to think
+                    if (this.gameMode === 'bot' && this.currentPlayer === 'black') {
+                        this.triggerBot();
+                    }
+                }
+            } catch (e) { console.error(e); }
+        }
     }
 
-    // --- LOGOUT & RESIGN ---
-
-    async logout() {
-        await ChessEngineAPI.logout();
-        window.location.href = 'loginPage.html';
+    analyzePosition() {
+        if (this.botEngine && this.gameLogic) {
+            this.botEngine.startThinking(this.gameLogic.fen(), 15);
+        }
     }
 
+    updateEvalBar(score, isMate) {
+        const barFill = document.getElementById('eval-fill');
+        const text = document.getElementById('eval-text');
+        if (!barFill || !text || !this.gameLogic) return;
+
+        let percentage = 50;
+        let displayScore = "0.0";
+
+        if (isMate) {
+            if (score > 0) { percentage = 100; displayScore = `M${score}`; }
+            else { percentage = 0; displayScore = `M${Math.abs(score)}`; }
+        } else {
+            let whiteScore = this.gameLogic.turn() === 'w' ? score : -score;
+            displayScore = (whiteScore / 100).toFixed(1);
+            if (whiteScore > 0) displayScore = "+" + displayScore;
+            const winningChance = 1 / (1 + Math.pow(10, -whiteScore / 400));
+            percentage = winningChance * 100;
+        }
+
+        barFill.style.height = `${percentage}%`;
+        text.innerText = displayScore;
+
+        text.style.color = percentage > 50 ? '#000' : '#fff';
+
+        text.style.textShadow = percentage > 50 ? '0 0 3px rgba(255,255,255,0.8)' : '0 0 3px rgba(0,0,0,0.6)';
+
+        text.style.top = percentage > 90 ? 'auto' : '5px';
+        text.style.bottom = percentage > 90 ? '5px' : 'auto';
+    }
+
+    syncBoardFromFen(fen) {
+        const rows = fen.split(' ')[0].split('/');
+        const newBoard = [];
+        for (let r = 0; r < 8; r++) {
+            const rowArr = [];
+            for (let char of rows[r]) {
+                if (isNaN(char)) rowArr.push(char);
+                else for (let k = 0; k < parseInt(char); k++) rowArr.push('');
+            }
+            newBoard.push(rowArr);
+        }
+        this.updateBoardState(newBoard);
+    }
+
+    async logout() { await ChessEngineAPI.logout(); window.location.href = 'loginPage.html'; }
     async resign() {
         if (!confirm("Are you sure you want to resign?")) return;
-
         try {
             await ChessEngineAPI.resignGame();
-            // In Bot Mode, we manually trigger the Modal because the server response
-            // might not reach the poller fast enough before we navigate away.
             if (this.gameMode === 'bot') {
                 this.showGameOverModal("Game Over: Black wins! (White resigned)");
                 clearInterval(this.pollingInterval);
@@ -245,21 +352,21 @@ class ChessUI {
         bind('home', () => window.location.href = 'home.html');
         bind('resign', () => this.resign());
         bind('logout-btn', () => this.logout());
+        bind('modal-new-game', () => location.reload());
     }
 
     initHomePage() {
-        const btn = document.getElementById('menu-new-game');
-        if (btn) btn.onclick = async () => {
+        const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+
+        bind('menu-new-game', async () => {
+            const btn = document.getElementById('menu-new-game');
             btn.textContent = "Joining...";
             try { await ChessEngineAPI.newGame(); window.location.href = 'game.html'; }
             catch (e) { alert("Server Error"); }
-        };
-        const btnBot = document.getElementById('menu-play-bot');
-        if (btnBot) btnBot.onclick = () => window.location.href = 'game.html?mode=bot';
+        });
 
-        // Home page logout
-        const logoutBtn = document.getElementById('logout-btn');
-        if (logoutBtn) logoutBtn.onclick = () => this.logout();
+        bind('menu-play-bot', () => window.location.href = 'game.html?mode=bot');
+        bind('logout-btn', () => this.logout());
     }
 
     async fetchAndSetUsername() {
@@ -286,91 +393,18 @@ class ChessUI {
         if (m) { document.getElementById('modal-message').textContent = msg; m.style.display = 'block'; }
     }
 
-    updateStatus(msg) {
-        const el = document.getElementById('game-status');
-        if(el) el.textContent = msg;
-    }
-
-    updateBoardState(b) {
-        this.currentBoard = b;
-        this.updatePieces();
-    }
-
-    updatePieces() {
-        const squares = document.getElementsByClassName('square');
-
-        for (let sq of squares) {
-            const r = parseInt(sq.dataset.row);
-            const c = parseInt(sq.dataset.col);
-            const p = this.currentBoard[r] ? this.currentBoard[r][c] : '';
-            sq.textContent = p ? this.getPieceSymbol(p) : '';
-            sq.style.color = (p === p.toUpperCase()) ? 'white' : 'black';
-        }
-    }
-    highlightLegalMoves() {
-        this.legalMoves.forEach(m => { const [r, c] = this.getRowColFromNotation(m);
-            const sq = document.querySelector(`.square[data-row="${r}"][data-col="${c}"]`);
-            if(sq) sq.classList.add(this.currentBoard[r][c] ? 'legal-capture' : 'legal-move');
-        });
-    }
-
-    clearSelection() {
-        if(this.selectedSquare) {
-            const [r, c] = this.selectedSquare;
-            const sq = document.querySelector(`.square[data-row="${r}"][data-col="${c}"]`);
-            if(sq) sq.classList.remove('selected');
-        }
-        this.selectedSquare = null; this.legalMoves = [];
-        document.querySelectorAll('.square').forEach(el => el.classList.remove('legal-move', 'legal-capture'));
-    }
-
-    isOwnPiece(p) {
-        if (!p) return false;
-        const w = p === p.toUpperCase();
-        return (this.currentPlayer === 'white' && w) || (this.currentPlayer === 'black' && !w);
-    }
-
-    getPieceSymbol(p) {
-        const s = { 'k':'♔', 'q':'♕', 'r':'♖', 'b':'♗', 'n':'♘', 'p':'♙', 'K':'♚', 'Q':'♛', 'R':'♜', 'B':'♝', 'N':'♞', 'P':'♟' };
-        return s[p] || '';
-    }
-
-    updatePlayerTurn() {
-        const el = document.getElementById('player-turn');
-        if(el) el.textContent = `${this.currentPlayer.toUpperCase()}'s Turn`;
-    }
-
-    getInitialBoard() {
-        return [['r','n','b','q','k','b','n','r'],
-            ['p','p','p','p','p','p','p','p'],
-            ['','','','','','','',''],
-            ['','','','','','','',''],
-            ['','','','','','','',''],
-            ['','','','','','','',''],
-            ['P','P','P','P','P','P','P','P'],
-            ['R','N','B','Q','K','B','N','R']];
-    }
-
-    getSquareNotation(r, c) {
-        return 'abcdefgh'[c] + (8 - r);
-    }
-
-    getRowColFromNotation(n) {
-        return [8 - parseInt(n[1]), 'abcdefgh'.indexOf(n[0])];
-    }
-
-    initializeBoard() {
-        this.boardElement.innerHTML = '';
-        for (let r = 0; r < 8; r++) {
-            for (let c = 0; c < 8; c++) { const sq = document.createElement('div');
-                sq.className = `square ${(r+c)%2===0?'light':'dark'}`;
-                sq.dataset.row = r; sq.dataset.col = c;
-                sq.onclick = () => this.handleSquareClick(r, c);
-                this.boardElement.appendChild(sq);
-            }
-        }
-        this.updatePieces();
-    }
+    updateStatus(msg) { const el = document.getElementById('game-status'); if(el) el.textContent = msg; }
+    updateBoardState(b) { this.currentBoard = b; this.updatePieces(); }
+    updatePieces() { const squares = document.getElementsByClassName('square'); for (let sq of squares) { const r = parseInt(sq.dataset.row); const c = parseInt(sq.dataset.col); const p = this.currentBoard[r] ? this.currentBoard[r][c] : ''; sq.textContent = p ? this.getPieceSymbol(p) : ''; sq.style.color = (p === p.toUpperCase()) ? 'white' : 'black'; } }
+    highlightLegalMoves() { this.legalMoves.forEach(m => { const [r, c] = this.getRowColFromNotation(m); const sq = document.querySelector(`.square[data-row="${r}"][data-col="${c}"]`); if(sq) sq.classList.add(this.currentBoard[r][c] ? 'legal-capture' : 'legal-move'); }); }
+    clearSelection() { if(this.selectedSquare) { const [r, c] = this.selectedSquare; const sq = document.querySelector(`.square[data-row="${r}"][data-col="${c}"]`); if(sq) sq.classList.remove('selected'); } this.selectedSquare = null; this.legalMoves = []; document.querySelectorAll('.square').forEach(el => el.classList.remove('legal-move', 'legal-capture')); }
+    isOwnPiece(p) { if (!p) return false; const w = p === p.toUpperCase(); return (this.currentPlayer === 'white' && w) || (this.currentPlayer === 'black' && !w); }
+    getPieceSymbol(p) { const s = { 'k':'♔', 'q':'♕', 'r':'♖', 'b':'♗', 'n':'♘', 'p':'♙', 'K':'♚', 'Q':'♛', 'R':'♜', 'B':'♝', 'N':'♞', 'P':'♟' }; return s[p] || ''; }
+    updatePlayerTurn() { const el = document.getElementById('player-turn'); if(el) el.textContent = `${this.currentPlayer.toUpperCase()}'s Turn`; }
+    getInitialBoard() { return [['r','n','b','q','k','b','n','r'],['p','p','p','p','p','p','p','p'],['','','','','','','',''],['','','','','','','',''],['','','','','','','',''],['','','','','','','',''],['P','P','P','P','P','P','P','P'],['R','N','B','Q','K','B','N','R']]; }
+    getSquareNotation(r, c) { return 'abcdefgh'[c] + (8 - r); }
+    getRowColFromNotation(n) { return [8 - parseInt(n[1]), 'abcdefgh'.indexOf(n[0])]; }
+    initializeBoard() { this.boardElement.innerHTML = ''; for (let r = 0; r < 8; r++) { for (let c = 0; c < 8; c++) { const sq = document.createElement('div'); sq.className = `square ${(r+c)%2===0?'light':'dark'}`; sq.dataset.row = r; sq.dataset.col = c; sq.onclick = () => this.handleSquareClick(r, c); this.boardElement.appendChild(sq); } } this.updatePieces(); }
 }
 
 document.addEventListener('DOMContentLoaded', () => { window.chessApp = new ChessUI(); });

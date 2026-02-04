@@ -154,11 +154,9 @@ public class ChessApiHandler {
                 System.out.println("--- PROCESSING MOVE ---");
                 System.out.println("User: " + sessionUser.getUsername() + " | Move: " + req.from + " -> " + req.to);
 
-                // 1. IDENTIFY PLAYERS
                 Player humanInGame = null;
                 Player botInGame = null;
 
-                // Loop through your ConcurrentHashMap 'players'
                 for (Map.Entry<Player, String> entry : game.players.entrySet()) {
                     Player p = entry.getKey();
                     if (p.getUsername().equals(sessionUser.getUsername())) humanInGame = p;
@@ -170,32 +168,24 @@ public class ChessApiHandler {
                     return;
                 }
 
-                // 2. SELF-HEALING: ADD MISSING BOT
-                // Your chessMatchHandler.java manages players in a Map. We must add the bot there.
                 if (botInGame == null) {
                     System.out.println(">> WARNING: Stockfish missing. Auto-Adding now.");
                     botInGame = new Player(UUID.randomUUID());
 
-                    // Find Human's color ("w" or "b")
                     String humanColor = game.players.get(humanInGame);
                     String botColor = humanColor.equals("w") ? "b" : "w";
 
-                    // Add Bot to the game map
                     game.players.put(botInGame, botColor);
 
-                    // Force state to "ongoing" via the BOARD object (since handler doesn't have setter)
-                    // Note: This relies on your Board class having setGameState, which is implied by processResignation
                     game.getBoard().setGameState("ongoing");
 
                     System.out.println(">> Stockfish added as " + botColor);
                 }
 
-                // 3. EXECUTE MOVE (Try-Fail-Retry)
                 Object result = null;
                 boolean success = false;
 
                 try {
-                    // Attempt 1: Try as Human
                     System.out.println("Attempt 1: Moving as Human (" + humanInGame.getUsername() + ")...");
                     result = game.processMove(humanInGame, req.from, req.to);
 
@@ -210,7 +200,6 @@ public class ChessApiHandler {
                     System.out.println(" > Attempt 1 Crashed: " + e.getMessage());
                 }
 
-                // Attempt 2: If Human failed, RETRY as Bot
                 if (!success && botInGame != null) {
                     System.out.println("Attempt 1 failed. Retrying as Bot (" + botInGame.getUsername() + ")...");
                     try {
@@ -281,7 +270,6 @@ public class ChessApiHandler {
         }
     }
 
-    // Add this method to ChessApiHandler.java
     public static void logout(Context context) {
         Player player = context.sessionAttribute("user");
         if (player != null) {

@@ -28,14 +28,47 @@
             <div class="move-controls" style="flex-direction: column; gap: 15px;">
                 <button id="menu-new-game" class="btn btn-primary" style="width: 100%;">New Game</button>
                 <button id="menu-play-bot" class="btn btn-primary" style="width: 100%;" onclick="window.location.href='game.html?mode=bot'">Play Bot</button>
+                <button id="menu-analysis" class="btn btn-primary" style="width: 100%;" onclick="openAnalysisModal()">Analysis</button>
                 <button class="btn btn-secondary" style="width: 100%; opacity: 0.5;">Settings</button>
                 <button id="logout-btn" class="btn btn-primary" style="width: 100%;">Log Out</button>
             </div>
+        </div>
+    </div>
+
+    <div id="analysis-modal" class="modal">
+        <div class="modal-content">
+            <h2>Load Position</h2>
+            <p>Enter FEN or leave blank for default.</p>
+
+            <textarea id="fen-input" placeholder="Paste FEN string here (e.g. rnbqk...)" rows="3" style="width: 100%; margin-bottom: 10px;"></textarea>
+
+            <div class="modal-buttons">
+                <button class="btn btn-primary" onclick="startAnalysis()">Load Board</button>
+                <button class="btn btn-secondary" onclick="closeAnalysisModal()">Cancel</button>
+            </div>
+            <p style="font-size: 0.8em; color: gray; margin-top: 5px;">(PGN support coming soon)</p>
         </div>
     </div>
 </div>
 
 <script src="scripts/chess-engine-api.js"></script>
 <script src="scripts/chess-ui.js"></script>
+<script>
+    function openAnalysisModal() {
+        document.getElementById('analysis-modal').style.display = 'block';
+    }
+    function closeAnalysisModal() {
+        document.getElementById('analysis-modal').style.display = 'none';
+    }
+    function startAnalysis() {
+        const input = document.getElementById('fen-input').value.trim();
+        if (input) {
+            sessionStorage.setItem('analysis_fen', input);
+        } else {
+            sessionStorage.removeItem('analysis_fen'); // Default
+        }
+        window.location.href = 'game.html?mode=analysis';
+    }
+</script>
 </body>
 </html>

@@ -2,8 +2,42 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Chess - Playing</title>
+    <title>Chess - lobby</title>
     <link rel="stylesheet" href="styles/styles.css">
+    <style>
+        /* NEW: Evaluation Bar Styles */
+        .board-wrapper {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .eval-bar-container {
+            width: 20px;
+            height: 480px; /* Matches board height */
+            background: #333;
+            border: 2px solid #555;
+            position: relative;
+            display: none; /* Hidden by default */
+        }
+        .eval-bar-white {
+            width: 100%;
+            background: white;
+            position: absolute;
+            bottom: 0;
+            height: 50%; /* Starts equal */
+            transition: height 0.5s ease;
+        }
+        .eval-score {
+            position: absolute;
+            top: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: #fff;
+            font-weight: bold;
+            z-index: 2;
+        }
+    </style>
 </head>
 <body>
 <div class="chess-container">
@@ -16,17 +50,28 @@
         <div class="game-info">
             <div id="sync-status" style="width: 12px; height: 12px; background: gray; border-radius: 50%; display: inline-block; margin-right: 10px; transition: background 0.2s;" title="Connection Status"></div>
             <div id="loading-spinner" style="display:none; color: #3498db; font-weight: bold; margin-bottom: 10px;">
-                Bot is thinking... 🤖
+                Thinking...
             </div>
             <span id="player-turn">Initializing...</span>
             <span id="game-status" style="margin-left: 15px; color: #aaa;"></span>
         </div>
+
     </header>
 
     <div class="main-content">
-        <div class="chess-board" id="chess-board"></div>
+        <div class="board-wrapper">
+            <div id="eval-bar" class="eval-bar-container">
+                <div id="eval-fill" class="eval-bar-white"></div>
+                <span id="eval-text" class="eval-score">0.0</span>
+            </div>
+
+            <div class="chess-board" id="chess-board"></div>
+        </div>
 
         <div class="control-panel">
+            <div id="analysis-controls" style="display:none; margin-bottom: 10px;">
+                <button class="btn btn-secondary" onclick="window.chessApp.resetAnalysis()">Reset Position</button>
+            </div>
             <div class="move-controls">
                 <button id="resign" class="btn btn-danger">Resign</button>
                 <button id="home" class="btn btn-secondary" onclick="window.location.href='home.html'">Home</button>
@@ -52,6 +97,7 @@
     </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 <script src="scripts/chess-utils.js"></script>
 <script src="scripts/UCIEngine.js"></script>
 <script src="scripts/chess-engine-api.js"></script>

@@ -1,14 +1,15 @@
 package API;
 
+import java.util.Map;
+import java.util.stream.Stream;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import API.utility.Player;
 import API.utility.PlayerDaoImplementation;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.Map;
-import java.util.stream.Stream;
 
 public class ChessServerAPI {
     private final Javalin server;
