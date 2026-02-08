@@ -4,21 +4,54 @@
     <meta charset="UTF-8">
     <title>Chess - Home</title>
     <link rel="stylesheet" href="styles/styles.css">
+    <link rel="icon" href="web-images/chess-world.png" type="image/x-icon">
     <style>
+        h1{
+            color: white;
+        }
         .main-content {
             display: flex;
             justify-content: center;
             align-items: center;
             height: 70vh;
         }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-image: url('web-images/HD-wallpaper-chess-world-king-grass-queen-piece-chess.jpg');
+            background-size: cover; /* makes it fill the screen */
+            background-repeat: no-repeat;
+            background-attachment: fixed; /* keeps it in place when scrolling */
+            margin: 0;
+            min-height: 100vh;
+        }
+        .user-panel {
+            display: flex;
+            align-items: center;
+            gap: 10px; /* space between pic and username */
+        }
+
+        #profile-pic {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;   /* circular */
+            object-fit: cover;    /* crop nicely */
+            cursor: pointer;      /* makes it clickable */
+            border: 2px solid #333;
+        }
     </style>
 </head>
 <body>
 <div class="chess-container">
     <header class="header">
-        <h1>♛ Chess World</h1>
+        <h1>
+            <img src="web-images/chess-world.png" alt="Chess World Logo" style="height:70px; vertical-align:middle;">
+            Chess World
+        </h1>
+
         <div class="user-panel">
-            <h2 class="username">Guest</h2>
+            <img id="profile-pic" src="web-images/wanderercreative-blank-profile-picture-973460_1280.png" alt="Profile Picture" />
+            <h2 id="self-name" style="color:white;">Guest</h2>
+            <input type="file" id="upload-pic" accept="image/*" hidden />
         </div>
     </header>
 
@@ -53,6 +86,7 @@
 
 <script src="scripts/chess-engine-api.js"></script>
 <script src="scripts/chess-ui.js"></script>
+<script src="scripts/modify-interface.js"></script>
 <script>
     function openAnalysisModal() {
         document.getElementById('analysis-modal').style.display = 'block';

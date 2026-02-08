@@ -4,10 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chess Server - Login</title>
+    <link rel="icon" href="web-images/chess-world.png" type="image/x-icon">
     <style>
         body {
             font-family: 'Segoe UI', sans-serif;
-            background: #2c3e50;
+            background-image: url('web-images/HD-wallpaper-chess-world-king-grass-queen-piece-chess.jpg');
+            background-size: cover; /* makes it fill the screen */
+            background-repeat: no-repeat;
+            background-attachment: fixed; /* keeps it in place when scrolling */
             margin: 0;
             padding: 20px;
             display: flex;
@@ -17,7 +21,6 @@
         }
 
         .login-container {
-            background: white;
             padding: 40px;
             border-radius: 10px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
@@ -31,7 +34,7 @@
         }
 
         .header h1 {
-            color: #2c3e50;
+            color: #ffffff;
             margin: 10px 0;
         }
 
@@ -153,7 +156,10 @@
 <body>
 <div class="login-container">
     <div class="header">
-        <h1>♔ Chess World</h1>
+        <h1>
+            <img src="web-images/chess-world.png" alt="Chess World Logo" style="height:70px; vertical-align:middle;">
+            Chess World
+        </h1>
         <p class="subtitle">Play chess online with friends</p>
     </div>
 

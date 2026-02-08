@@ -18,6 +18,7 @@ class ChessUI {
         this.botEngine = null;
 
         this.gameLogic = null;
+        this.isBoardFlipped = false;
 
         this.init();
     }
@@ -93,6 +94,8 @@ class ChessUI {
             this.gameLogic = new Chess();
         }
 
+        document.getElementById('opp-name').innerHTML = "Stockfish";
+
         try {
             const gameData = await ChessEngineAPI.newGame(true);
             console.log("Server Game Created:", gameData);
@@ -151,10 +154,35 @@ class ChessUI {
     }
 
     startOnlineMatch(data) {
-        if (data.white === this.currentUsername) this.myColor = 'white';
-        else if (data.black === this.currentUsername) this.myColor = 'black';
-        else this.myColor = 'spectator';
+        let opponentName = "Opponent";
+
+        if (data.white === this.currentUsername) {
+            this.myColor = 'white';
+            this.isBoardFlipped = false; // White is at bottom
+            opponentName = data.black || "Opponent";
+        } 
+        else if (data.black === this.currentUsername) {
+            this.myColor = 'black';
+            this.isBoardFlipped = true;  // Black is at bottom -> FLIP!
+            opponentName = data.white || "Opponent";
+        } 
+        else {
+            this.myColor = 'spectator';
+            this.isBoardFlipped = false;
+        }
+
         this.updateStatus(`You are ${this.myColor}`);
+
+        // Update the Profile Names (Targeting the IDs from your HTML)
+        const selfEl = document.getElementById('self-name');
+        const oppEl = document.getElementById('opp-name');
+        
+        if (selfEl) selfEl.innerText = this.currentUsername;
+        if (oppEl) oppEl.innerText = opponentName;
+
+        // Re-draw the board to apply the flip immediately
+        this.initializeBoard(); 
+        
         this.startPolling();
     }
 
@@ -369,13 +397,16 @@ class ChessUI {
         bind('logout-btn', () => this.logout());
     }
 
-    async fetchAndSetUsername() {
-        try {
-            const u = await ChessEngineAPI.getLoggedInUser();
-            this.currentUsername = u || "Guest";
-            const el = document.querySelector(".username");
+    async fetchAndSetUsername() { 
+        try { 
+            const u = await ChessEngineAPI.getLoggedInUser(); 
+            this.currentUsername = u || "Guest"; 
+            
+            // FIX: Use getElementById to target the BOTTOM strip specifically
+            // Old code used .querySelector(".username") which grabbed the top strip
+            const el = document.getElementById("self-name");
             if(el) el.innerText = this.currentUsername;
-        } catch(e){}
+        } catch(e){} 
     }
 
     addToHistory(from, to) {
@@ -393,18 +424,116 @@ class ChessUI {
         if (m) { document.getElementById('modal-message').textContent = msg; m.style.display = 'block'; }
     }
 
-    updateStatus(msg) { const el = document.getElementById('game-status'); if(el) el.textContent = msg; }
-    updateBoardState(b) { this.currentBoard = b; this.updatePieces(); }
-    updatePieces() { const squares = document.getElementsByClassName('square'); for (let sq of squares) { const r = parseInt(sq.dataset.row); const c = parseInt(sq.dataset.col); const p = this.currentBoard[r] ? this.currentBoard[r][c] : ''; sq.textContent = p ? this.getPieceSymbol(p) : ''; sq.style.color = (p === p.toUpperCase()) ? 'white' : 'black'; } }
-    highlightLegalMoves() { this.legalMoves.forEach(m => { const [r, c] = this.getRowColFromNotation(m); const sq = document.querySelector(`.square[data-row="${r}"][data-col="${c}"]`); if(sq) sq.classList.add(this.currentBoard[r][c] ? 'legal-capture' : 'legal-move'); }); }
-    clearSelection() { if(this.selectedSquare) { const [r, c] = this.selectedSquare; const sq = document.querySelector(`.square[data-row="${r}"][data-col="${c}"]`); if(sq) sq.classList.remove('selected'); } this.selectedSquare = null; this.legalMoves = []; document.querySelectorAll('.square').forEach(el => el.classList.remove('legal-move', 'legal-capture')); }
-    isOwnPiece(p) { if (!p) return false; const w = p === p.toUpperCase(); return (this.currentPlayer === 'white' && w) || (this.currentPlayer === 'black' && !w); }
-    getPieceSymbol(p) { const s = { 'k':'♔', 'q':'♕', 'r':'♖', 'b':'♗', 'n':'♘', 'p':'♙', 'K':'♚', 'Q':'♛', 'R':'♜', 'B':'♝', 'N':'♞', 'P':'♟' }; return s[p] || ''; }
-    updatePlayerTurn() { const el = document.getElementById('player-turn'); if(el) el.textContent = `${this.currentPlayer.toUpperCase()}'s Turn`; }
-    getInitialBoard() { return [['r','n','b','q','k','b','n','r'],['p','p','p','p','p','p','p','p'],['','','','','','','',''],['','','','','','','',''],['','','','','','','',''],['','','','','','','',''],['P','P','P','P','P','P','P','P'],['R','N','B','Q','K','B','N','R']]; }
-    getSquareNotation(r, c) { return 'abcdefgh'[c] + (8 - r); }
-    getRowColFromNotation(n) { return [8 - parseInt(n[1]), 'abcdefgh'.indexOf(n[0])]; }
-    initializeBoard() { this.boardElement.innerHTML = ''; for (let r = 0; r < 8; r++) { for (let c = 0; c < 8; c++) { const sq = document.createElement('div'); sq.className = `square ${(r+c)%2===0?'light':'dark'}`; sq.dataset.row = r; sq.dataset.col = c; sq.onclick = () => this.handleSquareClick(r, c); this.boardElement.appendChild(sq); } } this.updatePieces(); }
+    updateStatus(msg) { 
+        const el = document.getElementById('game-status'); 
+        if(el) el.textContent = msg; 
+    }
+    
+    updateBoardState(b) { 
+        this.currentBoard = b; 
+        this.updatePieces(); 
+    }
+    
+    updatePieces() { 
+        const squares = document.getElementsByClassName('square'); 
+        for (let sq of squares) { 
+            const r = parseInt(sq.dataset.row); 
+            const c = parseInt(sq.dataset.col); 
+            const p = this.currentBoard[r] ? this.currentBoard[r][c] : ''; 
+            sq.textContent = p ? this.getPieceSymbol(p) : ''; 
+            sq.style.color = (p === p.toUpperCase()) ? 'white' : 'black'; 
+        } 
+    }
+    
+    highlightLegalMoves() { 
+        this.legalMoves.forEach(m => { const [r, c] = this.getRowColFromNotation(m); 
+                                        const sq = document.querySelector(`.square[data-row="${r}"][data-col="${c}"]`);
+                                        if(sq) sq.classList.add(this.currentBoard[r][c] ? 'legal-capture' : 'legal-move'); 
+                                    }); 
+    }
+    
+    clearSelection() { 
+        if(this.selectedSquare) { const [r, c] = this.selectedSquare; 
+            const sq = document.querySelector(`.square[data-row="${r}"][data-col="${c}"]`); 
+            if(sq) sq.classList.remove('selected'); 
+        } 
+        this.selectedSquare = null; 
+        this.legalMoves = []; 
+        document.querySelectorAll('.square').forEach(el => el.classList.remove('legal-move', 'legal-capture')); 
+    }
+    
+    isOwnPiece(p) { 
+        if (!p) return false; 
+        const w = p === p.toUpperCase(); 
+        return (this.currentPlayer === 'white' && w) || (this.currentPlayer === 'black' && !w); 
+    }
+    
+    getPieceSymbol(p) { 
+        const s = { 'k':'♔', 'q':'♕', 'r':'♖', 'b':'♗', 'n':'♘', 'p':'♙', 'K':'♚', 'Q':'♛', 'R':'♜', 'B':'♝', 'N':'♞', 'P':'♟' }; 
+        return s[p] || ''; 
+    }
+    
+    updatePlayerTurn() { 
+        const el = document.getElementById('player-turn'); 
+        if(el) el.textContent = `${this.currentPlayer.toUpperCase()}'s Turn`; 
+    }
+    
+    getInitialBoard() { 
+        return [['r','n','b','q','k','b','n','r'],
+                ['p','p','p','p','p','p','p','p'],
+                ['','','','','','','',''],
+                ['','','','','','','',''],
+                ['','','','','','','',''],
+                ['','','','','','','',''],
+                ['P','P','P','P','P','P','P','P'],
+                ['R','N','B','Q','K','B','N','R']]; 
+    }
+    
+    getSquareNotation(r, c) { 
+        return 'abcdefgh'[c] + (8 - r); 
+    }
+    
+    getRowColFromNotation(n) { 
+        return [8 - parseInt(n[1]), 'abcdefgh'.indexOf(n[0])]; 
+    }
+
+    initializeBoard() {
+        this.boardElement.innerHTML = ''; 
+        
+        // visualRow 0 is the Top of the HTML element
+        // visualRow 7 is the Bottom of the HTML element
+        for (let visualRow = 0; visualRow < 8; visualRow++) {
+            for (let visualCol = 0; visualCol < 8; visualCol++) {
+                
+                let row, col;
+
+                if (this.isBoardFlipped) {
+                    // IF FLIPPED (Black at Bottom):
+                    // Top-Left corner (0,0) becomes Board Square (7,7) -> h1
+                    row = 7 - visualRow; 
+                    col = 7 - visualCol; 
+                } else {
+                    // NORMAL (White at Bottom):
+                    // Top-Left corner (0,0) is Board Square (0,0) -> a8
+                    row = visualRow;
+                    col = visualCol;
+                }
+
+                const sq = document.createElement('div');
+                
+                // CSS Styling: We use visual coordinates to keep the checkerboard pattern stable
+                sq.className = `square ${(visualRow + visualCol) % 2 === 0 ? 'light' : 'dark'}`;
+                
+                // DATA Attributes: We use Logical coordinates for game rules
+                sq.dataset.row = row;
+                sq.dataset.col = col;
+                
+                sq.onclick = () => this.handleSquareClick(row, col);
+                this.boardElement.appendChild(sq);
+            }
+        }
+        this.updatePieces();
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => { window.chessApp = new ChessUI(); });
