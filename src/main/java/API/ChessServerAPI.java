@@ -23,6 +23,7 @@ public class ChessServerAPI {
                         staticFiles.hostedPath = "/";
                         staticFiles.directory = "Front-End";
                         staticFiles.location = Location.CLASSPATH;
+                        staticFiles.headers = Map.of("Cache-Control", "public, max-age=31536000");
                     });
                 })
                 .before(ctx -> {
