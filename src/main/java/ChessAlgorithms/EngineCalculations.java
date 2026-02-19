@@ -1,309 +1,349 @@
-package ChessAlgorithms;
+// package ChessAlgorithms;
 
-import logic.Board;
-import logic.Moves;
+// import logic.Board;
+// import logic.Moves;
 
-import java.util.*;
+// import java.util.*;
 
-public class EngineCalculations {
-    // Piece values for evaluation (centipawns)
-    private static final int PAWN_VALUE = 100;
-    private static final int KNIGHT_VALUE = 320;
-    private static final int BISHOP_VALUE = 330;
-    private static final int ROOK_VALUE = 500;
-    private static final int QUEEN_VALUE = 900;
-    private static final int KING_VALUE = 20000;
+// public class EngineCalculations {
 
-    private static final int CHECKMATE_SCORE = 100000;
-    private static final int STALEMATE_SCORE = 0;
+//     // --- OPTIMIZED PIECE VALUES (Lookup Table for Speed) ---
+//     private static final Map<String, Integer> PIECE_VALUES = new HashMap<>();
+//     static {
+//         PIECE_VALUES.put("P", 100);   PIECE_VALUES.put("p", -100);
+//         PIECE_VALUES.put("N", 320);   PIECE_VALUES.put("n", -320);
+//         PIECE_VALUES.put("B", 330);   PIECE_VALUES.put("b", -330);
+//         PIECE_VALUES.put("R", 500);   PIECE_VALUES.put("r", -500);
+//         PIECE_VALUES.put("Q", 900);   PIECE_VALUES.put("q", -900);
+//         PIECE_VALUES.put("K", 20000); PIECE_VALUES.put("k", -20000);
+//     }
 
-    /**
-     * Evaluates the current board position from white's perspective
-     * Positive = white is better, Negative = black is better
-     */
-    public double evaluate(Board board) {
-        // Check for game over conditions first
-        if (isCheckmate(board, "w")) return -CHECKMATE_SCORE; // Black wins
-        if (isCheckmate(board, "b")) return CHECKMATE_SCORE;  // White wins
-        if (isStalemate(board)) return STALEMATE_SCORE;
+//     private static final int CHECKMATE_SCORE = 100000;
+//     private static final int STALEMATE_SCORE = 0;
 
-        double score = 0;
+//     // --- MAIN SEARCH METHODS ---
 
-        // Material evaluation
-        score += evaluateMaterial(board);
+//     /**
+//      * Iterative Deepening: Searches depth 1, then 2, then 3...
+//      * This ensures we always have a "best move" ready if time runs out.
+//      */
+//     public String iterativeDeepening(Board board, long maxTimeMillis) {
+//         String bestMove = "";
+//         long startTime = System.currentTimeMillis();
+        
+//         // LIMIT: Start with depth 4 for your i5 laptop. 
+//         // Going deeper than 5 or 6 in Java without bitboards will be slow.
+//         int maxDepth = 5; 
 
-        // Piece activity/mobility
-        score += evaluateMobility(board);
+//         for (int depth = 1; depth <= maxDepth; depth++) {
+//             if (System.currentTimeMillis() - startTime > maxTimeMillis) {
+//                 break; // Time's up
+//             }
 
-        // Pawn structure
-        score += evaluatePawnStructure(board);
+//             try {
+//                 String move = findBestMove(board, depth);
+//                 if (!move.isEmpty()) {
+//                     bestMove = move;
+//                 }
+//                 // Optional: Print info to console to debug
+//                 // System.out.println("Depth " + depth + " | Best: " + bestMove);
+//             } catch (Exception e) {
+//                 System.err.println("Error at depth " + depth + ": " + e.getMessage());
+//                 break;
+//             }
+//         }
+//         return bestMove;
+//     }
 
-        // King safety
-        score += evaluateKingSafety(board);
+//     public String findBestMove(Board board, int depth) {
+//         String currentTurn = getTurnFromFEN(board);
+//         boolean maximizingPlayer = currentTurn.equals("w");
 
-        return score;
-    }
+//         List<String> legalMoves = generateLegalMoves(board, currentTurn);
+        
+//         // Fallback if no moves are available (Mate/Stalemate)
+//         if (legalMoves.isEmpty()) return "";
 
-    /**
-     * Basic minimax algorithm with alpha-beta pruning
-     * @param board Current board state
-     * @param depth How many moves to look ahead
-     * @param alpha Best value for maximizing player (white)
-     * @param beta Best value for minimizing player (black)
-     * @param maximizingPlayer True if it's white's turn to move
-     * @return The best evaluation score found
-     */
-    public double minimax(Board board, int depth, double alpha, double beta, boolean maximizingPlayer) {
-        // Base case: reached max depth or game over
-        if (depth == 0 || isGameOver(board)) {
-            return evaluate(board);
-        }
+//         String bestMove = legalMoves.get(0);
+//         double bestEval = maximizingPlayer ? -Double.MAX_VALUE : Double.MAX_VALUE;
 
-        String currentTurn = board.getFENStringPosition().split(" ")[1];
-        List<String> legalMoves = generateLegalMoves(board, currentTurn);
+//         // Alpha-Beta Pruning Initialization
+//         double alpha = -Double.MAX_VALUE;
+//         double beta = Double.MAX_VALUE;
 
-        if (maximizingPlayer) {
-            double maxEval = -Double.MAX_VALUE;
-            for (String move : legalMoves) {
-                // Make move
-                Board newBoard = makeMove(board, move);
+//         for (String move : legalMoves) {
+//             Board newBoard = simulateMove(board, move);
+            
+//             // Recursive Minimax Call
+//             double eval = minimax(newBoard, depth - 1, alpha, beta, !maximizingPlayer);
 
-                // Recursive call
-                double eval = minimax(newBoard, depth - 1, alpha, beta, false);
-                maxEval = Math.max(maxEval, eval);
+//             if (maximizingPlayer) {
+//                 if (eval > bestEval) {
+//                     bestEval = eval;
+//                     bestMove = move;
+//                 }
+//                 alpha = Math.max(alpha, eval);
+//             } else {
+//                 if (eval < bestEval) {
+//                     bestEval = eval;
+//                     bestMove = move;
+//                 }
+//                 beta = Math.min(beta, eval);
+//             }
+//         }
+//         return bestMove;
+//     }
 
-                // Alpha-beta pruning
-                alpha = Math.max(alpha, eval);
-                if (beta <= alpha) {
-                    break; // Beta cutoff
-                }
-            }
-            return maxEval;
-        } else {
-            double minEval = Double.MAX_VALUE;
-            for (String move : legalMoves) {
-                // Make move
-                Board newBoard = makeMove(board, move);
+//     public double minimax(Board board, int depth, double alpha, double beta, boolean maximizingPlayer) {
+//         if (depth == 0) {
+//             return evaluate(board);
+//         }
+        
+//         // Check Game Over conditions
+//         if (isGameOver(board)) {
+//             return evaluate(board); 
+//         }
 
-                // Recursive call
-                double eval = minimax(newBoard, depth - 1, alpha, beta, true);
-                minEval = Math.min(minEval, eval);
+//         String currentTurn = maximizingPlayer ? "w" : "b";
+//         List<String> legalMoves = generateLegalMoves(board, currentTurn);
 
-                // Alpha-beta pruning
-                beta = Math.min(beta, eval);
-                if (beta <= alpha) {
-                    break; // Alpha cutoff
-                }
-            }
-            return minEval;
-        }
-    }
+//         if (legalMoves.isEmpty()) return evaluate(board); // Should be handled by isGameOver, but safety check
 
-    /**
-     * Finds the best move using minimax with alpha-beta pruning
-     * @param board Current board state
-     * @param depth Search depth
-     * @return The best move in format "e2-e4"
-     */
-    public String findBestMove(Board board, int depth) {
-        String currentTurn = board.getFENStringPosition().split(" ")[1];
-        boolean maximizingPlayer = currentTurn.equals("w");
+//         if (maximizingPlayer) {
+//             double maxEval = -Double.MAX_VALUE;
+//             for (String move : legalMoves) {
+//                 Board newBoard = simulateMove(board, move);
+//                 double eval = minimax(newBoard, depth - 1, alpha, beta, false);
+//                 maxEval = Math.max(maxEval, eval);
+//                 alpha = Math.max(alpha, eval);
+//                 if (beta <= alpha) break; // Beta Cut-off
+//             }
+//             return maxEval;
+//         } else {
+//             double minEval = Double.MAX_VALUE;
+//             for (String move : legalMoves) {
+//                 Board newBoard = simulateMove(board, move);
+//                 double eval = minimax(newBoard, depth - 1, alpha, beta, true);
+//                 minEval = Math.min(minEval, eval);
+//                 beta = Math.min(beta, eval);
+//                 if (beta <= alpha) break; // Alpha Cut-off
+//             }
+//             return minEval;
+//         }
+//     }
 
-        List<String> legalMoves = generateLegalMoves(board, currentTurn);
-        String bestMove = legalMoves.get(0); // Default to first move
-        double bestEval = maximizingPlayer ? -Double.MAX_VALUE : Double.MAX_VALUE;
+//     // --- EVALUATION ---
 
-        for (String move : legalMoves) {
-            // Make move
-            Board newBoard = makeMove(board, move);
+//     public double evaluate(Board board) {
+//         // 1. Check for immediate mates (Most important)
+//         if (isCheckmate(board, "w")) return -CHECKMATE_SCORE; // White is mated -> Black wins
+//         if (isCheckmate(board, "b")) return CHECKMATE_SCORE;  // Black is mated -> White wins
+//         if (isStalemate(board)) return STALEMATE_SCORE;
 
-            // Evaluate position
-            double eval = minimax(newBoard, depth - 1,
-                    -Double.MAX_VALUE, Double.MAX_VALUE, !maximizingPlayer);
+//         double score = 0;
+        
+//         // 2. Material (The main driver)
+//         score += evaluateMaterial(board);
+        
+//         // 3. Mobility (Simple: number of legal moves)
+//         // Note: Calculating legal moves is expensive. For depth > 4, you might want to remove this.
+//         score += evaluateMobility(board);
 
-            // Update best move
-            if ((maximizingPlayer && eval > bestEval) ||
-                    (!maximizingPlayer && eval < bestEval)) {
-                bestEval = eval;
-                bestMove = move;
-            }
-        }
+//         return score;
+//     }
 
-        return bestMove;
-    }
+//     private double evaluateMaterial(Board board) {
+//         double score = 0;
+//         // Assuming Board has a method to get the grid or we iterate 0-7
+//         // You need to adapt 'board.getPieceAt(r, c)' to your actual Board method
+//         for (int r = 0; r < 8; r++) {
+//             for (int c = 0; c < 8; c++) {
+//                 // Adapting to your previous code style
+//                 String piece = getPieceAt(board, r, c); 
+//                 if (piece != null && !piece.trim().isEmpty() && PIECE_VALUES.containsKey(piece)) {
+//                     score += PIECE_VALUES.get(piece);
+//                 }
+//             }
+//         }
+//         return score;
+//     }
 
-    /**
-     * Iterative deepening - searches progressively deeper until time runs out
-     * Better for time management in actual games
-     */
-    public String iterativeDeepening(Board board, long maxTimeMillis) {
-        String bestMove = "";
-        long startTime = System.currentTimeMillis();
+//     private double evaluateMobility(Board board) {
+//         // Simple heuristic: 0.1 points per legal move
+//         // This encourages the engine to develop pieces
+//         List<String> whiteMoves = generateLegalMoves(board, "w");
+//         List<String> blackMoves = generateLegalMoves(board, "b");
+//         return (whiteMoves.size() - blackMoves.size()) * 0.1;
+//     }
 
-        for (int depth = 1; depth <= 10; depth++) {
-            if (System.currentTimeMillis() - startTime > maxTimeMillis) {
-                break; // Time's up
-            }
+//     // --- CORE LOGIC & HELPERS ---
 
-            try {
-                String move = findBestMove(board, depth);
-                if (!move.isEmpty()) {
-                    bestMove = move;
-                }
-                System.out.println("Depth " + depth + " completed. Best move: " + bestMove);
-            } catch (Exception e) {
-                System.out.println("Error at depth " + depth + ": " + e.getMessage());
-                break;
-            }
-        }
+//     /**
+//      * CRITICAL: Generates all valid moves for the engine to consider.
+//      * Connects to your existing 'Moves' class logic.
+//      */
+//     private List<String> generateLegalMoves(Board board, String player) {
+//         List<String> moves = new ArrayList<>();
+//         boolean isWhiteTurn = player.equals("w");
 
-        return bestMove;
-    }
+//         for (int r = 0; r < 8; r++) {
+//             for (int c = 0; c < 8; c++) {
+//                 String piece = getPieceAt(board, r, c);
+                
+//                 // Skip empty squares or enemy pieces
+//                 if (piece == null || piece.trim().isEmpty()) continue;
+//                 boolean isWhitePiece = Character.isUpperCase(piece.charAt(0));
+//                 if (isWhitePiece != isWhiteTurn) continue;
 
-    // Helper methods for evaluation
+//                 // 1. Get raw pseudo-legal moves from your Moves class
+//                 // Assumes Moves.getPossibleMoves returns standard algebraic notation or similar
+//                 // You might need to adjust this call to match your Moves.java signature exactly
+//                 List<String> rawMoves = Moves.processMoves(board, r, c); 
 
-    private double evaluateMaterial(Board board) {
-        double material = 0;
+//                 // 2. Filter for King Safety (Legal Moves only)
+//                 for (String moveStr : rawMoves) {
+//                     // Assuming rawMoves format is "e2-e4" or similar
+//                     // We must simulate to check if King is left in check
+//                     if (isMoveSafe(board, moveStr, player)) {
+//                         moves.add(moveStr);
+//                     }
+//                 }
+//             }
+//         }
+//         return moves;
+//     }
 
-        // You'll need to implement getPiecePositions in your Board class
-        // This is a simplified version - you'll need to adapt to your Board class
+//     /**
+//      * Creates a DEEP COPY of the board and applies the move.
+//      * This is crucial so we don't destroy the actual game state during search.
+//      */
+//     private Board simulateMove(Board original, String move) {
+//         // 1. Create Deep Copy
+//         // IF your Board class has a .copy() method, use it: Board copy = original.copy();
+//         // ELSE, we must manually copy the grid. Assuming Board takes a 2D array in constructor:
+//         String[][] newGrid = new String[8][8];
+//         for(int i=0; i<8; i++) {
+//             for(int j=0; j<8; j++) {
+//                 newGrid[i][j] = getPieceAt(original, i, j);
+//             }
+//         }
+//         // You might need to adjust this constructor to match Board.java
+//         Board newBoard = new Board(newGrid); 
+        
+//         // 2. Parse and Apply Move ("e2-e4")
+//         String[] parts = move.split("-");
+//         String from = parts[0];
+//         String to = parts[1];
+        
+//         int[] fromCoords = parseSquare(from);
+//         int[] toCoords = parseSquare(to);
+        
+//         // Get piece and move it
+//         String piece = newGrid[fromCoords[0]][fromCoords[1]];
+//         newBoard.setPieceAt(fromCoords[0], fromCoords[1], " "); // Clear old
+//         newBoard.setPieceAt(toCoords[0], toCoords[1], piece);   // Set new
+        
+//         // TODO: Handle Pawn Promotion (Auto-Queen for engine simplicity)
+//         if ((piece.equals("P") && toCoords[0] == 0) || (piece.equals("p") && toCoords[0] == 7)) {
+//             newBoard.setPieceAt(toCoords[0], toCoords[1], piece.equals("P") ? "Q" : "q");
+//         }
 
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                // This depends on how your Board class stores pieces
-                // You'll need to adapt this to your actual implementation
-                String piece = ""; // board.getPieceAt(row, col);
+//         return newBoard;
+//     }
 
-                switch (piece) {
-                    case "P": material += PAWN_VALUE; break;
-                    case "N": material += KNIGHT_VALUE; break;
-                    case "B": material += BISHOP_VALUE; break;
-                    case "R": material += ROOK_VALUE; break;
-                    case "Q": material += QUEEN_VALUE; break;
-                    case "K": material += KING_VALUE; break;
-                    case "p": material -= PAWN_VALUE; break;
-                    case "n": material -= KNIGHT_VALUE; break;
-                    case "b": material -= BISHOP_VALUE; break;
-                    case "r": material -= ROOK_VALUE; break;
-                    case "q": material -= QUEEN_VALUE; break;
-                    case "k": material -= KING_VALUE; break;
-                }
-            }
-        }
+//     // --- SAFETY CHECKS ---
 
-        return material;
-    }
+//     private boolean isMoveSafe(Board board, String move, String player) {
+//         // 1. Simulate the move on a temporary board
+//         Board tempBoard = simulateMove(board, move);
+        
+//         // 2. Check if the King is under attack
+//         return !isInCheck(tempBoard, player);
+//     }
 
-    private double evaluateMobility(Board board) {
-        // Count how many legal moves each side has
-        // More mobility = better position
-        List<String> whiteMoves = generateLegalMoves(board, "w");
-        List<String> blackMoves = generateLegalMoves(board, "b");
+//     private boolean isInCheck(Board board, String player) {
+//         String king = player.equals("w") ? "K" : "k";
+//         int[] kingPos = findPiece(board, king);
+        
+//         if (kingPos == null) return true; // King missing? equivalent to checkmate/loss
 
-        return (whiteMoves.size() - blackMoves.size()) * 0.1; // Small weight
-    }
+//         // Check if any enemy piece can attack the King's square
+//         String enemy = player.equals("w") ? "b" : "w";
+//         return isSquareAttacked(board, kingPos[0], kingPos[1], enemy);
+//     }
 
-    private double evaluatePawnStructure(Board board) {
-        // Simplified pawn structure evaluation
-        // You can expand this with doubled pawns, isolated pawns, passed pawns, etc.
-        double pawnScore = 0;
+//     private boolean isSquareAttacked(Board board, int r, int c, String enemyColor) {
+//         // Iterate all enemy pieces and see if they can move to (r, c)
+//         boolean isEnemyWhite = enemyColor.equals("w");
+        
+//         for (int i = 0; i < 8; i++) {
+//             for (int j = 0; j < 8; j++) {
+//                 String p = getPieceAt(board, i, j);
+//                 if (p == null || p.trim().isEmpty()) continue;
+                
+//                 if (Character.isUpperCase(p.charAt(0)) == isEnemyWhite) {
+//                     // Check if this enemy piece targets the King's square
+//                     // This relies on your Moves class handling capture logic correctly
+//                     if (Moves.canPieceAttackSquare(board, i, j, r, c)) {
+//                          return true;
+//                     }
+//                 }
+//             }
+//         }
+//         return false;
+//     }
 
-        // This would require analyzing pawn positions
-        // For now, return 0 as a placeholder
+//     // --- UTILITIES ---
 
-        return pawnScore;
-    }
+//     private int[] findPiece(Board board, String piece) {
+//         for (int r = 0; r < 8; r++) {
+//             for (int c = 0; c < 8; c++) {
+//                 if (piece.equals(getPieceAt(board, r, c))) {
+//                     return new int[]{r, c};
+//                 }
+//             }
+//         }
+//         return null; // Should not happen for King
+//     }
 
-    private double evaluateKingSafety(Board board) {
-        // Simplified king safety
-        // Penalize exposed kings, reward castled kings
-        double safetyScore = 0;
+//     private int[] parseSquare(String sq) {
+//         // "e2" -> [6, 4] (Row 6, Col 4) assuming 0=a8, 7=h1 or standard indexing
+//         int col = sq.charAt(0) - 'a';
+//         int row = 8 - Integer.parseInt(sq.substring(1));
+//         return new int[]{row, col};
+//     }
 
-        // This would require analyzing king position and pawn shield
-        // For now, return 0 as a placeholder
+//     private boolean isGameOver(Board board) {
+//         return isCheckmate(board, "w") || isCheckmate(board, "b") || isStalemate(board);
+//     }
 
-        return safetyScore;
-    }
+//     private boolean isCheckmate(Board board, String player) {
+//         if (!isInCheck(board, player)) return false;
+//         List<String> moves = generateLegalMoves(board, player);
+//         return moves.isEmpty();
+//     }
 
-    // Game state detection methods
-
-    private boolean isGameOver(Board board) {
-        return isCheckmate(board, "w") || isCheckmate(board, "b") || isStalemate(board);
-    }
-
-    private boolean isCheckmate(Board board, String player) {
-        // Check if the player has any legal moves and is in check
-        List<String> legalMoves = generateLegalMoves(board, player);
-        return legalMoves.isEmpty() && isInCheck(board, player);
-    }
-
-    private boolean isStalemate(Board board) {
-        // Check if current player has no legal moves but is not in check
-        String currentTurn = board.getFENStringPosition().split(" ")[1];
-        List<String> legalMoves = generateLegalMoves(board, currentTurn);
-        return legalMoves.isEmpty() && !isInCheck(board, currentTurn);
-    }
-
-    private boolean isInCheck(Board board, String player) {
-        // You already have this logic in your ChessGame class
-        // You might want to move it here or call it from there
-        String kingPosition = findKingPosition(board, player);
-        return isSquareAttacked(board, kingPosition, player.equals("w") ? "b" : "w");
-    }
-
-    // Core engine methods you'll need to implement
-
-    private List<String> generateLegalMoves(Board board, String player) {
-        List<String> legalMoves = new ArrayList<>();
-
-        // You'll need to implement this based on your existing move generation
-        // This should return all legal moves for the given player
-        // Format: ["e2-e4", "g1-f3", ...]
-
-        // Pseudocode:
-        // 1. Get all pieces for the player
-        // 2. For each piece, generate possible moves using your Moves class
-        // 3. Filter out moves that leave king in check
-
-        return legalMoves;
-    }
-
-    private Board makeMove(Board originalBoard, String move) {
-        // Create a copy of the board and apply the move
-        // You'll need to implement board copying in your Board class
-
-        Board newBoard = originalBoard; // You'll need to implement copy() in Board
-        String[] squares = move.split("-");
-        String fromSquare = squares[0];
-        String toSquare = squares[1];
-
-        String piece = newBoard.getSquare(fromSquare);
-        newBoard.setSquare(fromSquare, " "); // Clear original square
-        newBoard.setSquare(toSquare, piece); // Move piece to new square
-
-        return newBoard;
-    }
-
-    private String findKingPosition(Board board, String player) {
-        String king = player.equals("w") ? "K" : "k";
-
-        // You'll need to implement getPiecePositions in your Board class
-        ArrayList<String> positions = board.getPiecePositions(king);
-        return positions.isEmpty() ? "" : positions.get(0);
-    }
-
-    private boolean isSquareAttacked(Board board, String square, String byPlayer) {
-        // Check if any of byPlayer's pieces can attack the given square
-        // Similar to your inCheck method but for any square
-
-        // You can adapt your existing inCheck logic here
-        return false; // Placeholder
-    }
-
-    /**
-     * Quick evaluation for faster search - uses only material
-     */
-    public double quickEvaluate(Board board) {
-        return evaluateMaterial(board);
-    }
-}
+//     private boolean isStalemate(Board board) {
+//         if (isInCheck(board, "w") || isInCheck(board, "b")) return false;
+//         String turn = getTurnFromFEN(board);
+//         return generateLegalMoves(board, turn).isEmpty();
+//     }
+    
+//     // --- ADAPTERS (Adjust these to match your Board class) ---
+    
+//     private String getPieceAt(Board b, int r, int c) {
+//         // Replace this with your actual method, e.g., b.getSquare(r, c)
+//         // or b.grid[r][c]
+//         return b.getBoardGrid()[r][c]; 
+//     }
+    
+//     private String getTurnFromFEN(Board b) {
+//         // If your Board keeps track of turn, use b.getTurn()
+//         // Otherwise, parse FEN:
+//         try {
+//             return b.getFENStringPosition().split(" ")[1];
+//         } catch (Exception e) {
+//             return "w"; // Default safety
+//         }
+//     }
+// }

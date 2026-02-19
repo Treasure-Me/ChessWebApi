@@ -1,9 +1,9 @@
 package API.utility;
 
+import java.util.UUID;
+
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-
-import java.util.UUID;
 
 public class Player {
     private UUID id;
@@ -41,6 +41,10 @@ public class Player {
 
     public void setPassword(String newPassword){
         this.password = newPassword;
+    }
+
+    public void setUsername(String username){
+        this.username = username;
     }
 
     @Override

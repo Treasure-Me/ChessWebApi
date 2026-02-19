@@ -224,6 +224,29 @@
         </div>
     </div>
 
+    <div class="modal" id="black-promotion-modal">
+        <div class="modal-content">
+            <h2 id="modal-title">Select piece</h2>
+            <div class="modal-buttons" style="display: flex; justify-content: center; gap: 10px;">
+                <button class="btn btn-secondary" onclick="window.chessApp.commitPromotion('q')" style="font-size: 30px;">♕</button>
+                <button class="btn btn-secondary" onclick="window.chessApp.commitPromotion('n')" style="font-size: 30px;">♘</button>
+                <button class="btn btn-secondary" onclick="window.chessApp.commitPromotion('r')" style="font-size: 30px;">♖</button>
+                <button class="btn btn-secondary" onclick="window.chessApp.commitPromotion('b')" style="font-size: 30px;">♗</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="white-promotion-modal">
+        <div class="modal-content">
+            <h2 id="modal-title">Select piece</h2>
+            <div class="modal-buttons" style="display: flex; justify-content: center; gap: 10px;">
+                <button class="btn btn-secondary" onclick="window.chessApp.commitPromotion('q')" style="font-size: 30px;">♛</button>
+                <button class="btn btn-secondary" onclick="window.chessApp.commitPromotion('n')" style="font-size: 30px;">♞</button>
+                <button class="btn btn-secondary" onclick="window.chessApp.commitPromotion('r')" style="font-size: 30px;">♜</button>
+                <button class="btn btn-secondary" onclick="window.chessApp.commitPromotion('b')" style="font-size: 30px;">♝</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>

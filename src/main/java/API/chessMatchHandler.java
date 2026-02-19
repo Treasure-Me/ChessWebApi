@@ -1,16 +1,21 @@
 package API;
 
-import API.utility.Player;
-import logic.Board;
-import logic.ChessGame;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+import API.utility.Player;
+import logic.Board;
+import logic.ChessGame;
+
 
 public class chessMatchHandler {
     public final String gameId;
     public Map<Player, String> players = new ConcurrentHashMap<>();
     private Board board;
+    private boolean vsBot = false;
+    private Player botPlayer = null;
+
 
     public chessMatchHandler(String gameId, Player p1, Player p2) {
         this.gameId = gameId;
@@ -23,6 +28,18 @@ public class chessMatchHandler {
             players.put(p1, "b");
             players.put(p2, "w");
         }
+
+        if (p1.getUsername().equals("Stockfish")) {
+            vsBot = true;
+            botPlayer = p1;
+            players.put(p2, "w");
+            players.put(p1, "b");
+        } else if (p2.getUsername().equals("Stockfish")) {
+            vsBot = true;
+            botPlayer = p2;
+            players.put(p1, "w");
+            players.put(p2, "b");
+        }
     }
 
 
@@ -30,24 +47,65 @@ public class chessMatchHandler {
         return Map.of(
                 "newBoard", board.getCleanSquares(),
                 "turn", board.getFENStringPosition().split(" ")[1],
+                "status", board.getGameState(),
+                "fen", board.getFENStringPosition()
+        );
+    }
+
+    public Map<String, Object> processMove(Player player, String from, String to, String promotion) {
+        System.out.println("I ended here");
+        if (!players.containsKey(player)){
+            System.out.println("Player error!");
+            return Map.of("success", false, "message", "Not a player");
+        }
+            
+
+        String color = players.get(player);
+        String fenTurn = board.getFENStringPosition().split(" ")[1];
+
+        if (!color.equals(fenTurn)){
+            System.out.println("Color error!");
+            return Map.of("success", false, "message", "Not your turn");
+        }
+
+
+        System.out.println("I made it past color and player");
+        board = ChessGame.playGame(board, from + "-" + to, promotion);
+        
+
+        if (board.getGameState().startsWith("Invalid") || board.getGameState().startsWith("Illegal") || board.getGameState().startsWith("Cannot")) {
+            System.out.println("Stuck state");
+            return Map.of("success", false, "message", board.getGameState());
+        }
+
+        if (vsBot) {
+            String nextTurn = board.getFENStringPosition().split(" ")[1];
+            String botColor = players.get(botPlayer);
+
+            if (nextTurn.equals(botColor) && board.getGameState().equals("ongoing")) {
+                makeBotMove(from, to);
+            }
+        }
+        System.out.println("Made it here");
+        return Map.of(
+                "success", true,
+                "newBoard", board.getCleanSquares(),
                 "status", board.getGameState()
         );
     }
 
-    public Map<String, Object> processMove(Player player, String from, String to) {
-        if (!players.containsKey(player)) return Map.of("success", false, "message", "Not a player");
+    private void makeBotMove(String from, String to) {
 
-        String color = players.get(player);
-        String fenTurn = board.getFENStringPosition().split(" ")[1];
-        if (!color.equals(fenTurn)) return Map.of("success", false, "message", "Not your turn");
+        try {
 
-        board = ChessGame.playGame(board, from + "-" + to);
+            board = ChessGame.playGame(board, from + "-" + to, null);
 
-        if (board.getGameState().startsWith("Invalid") || board.getGameState().startsWith("Illegal") || board.getGameState().startsWith("Cannot")) {
-            return Map.of("success", false, "message", board.getGameState());
+        } catch (Exception e) {
+            System.out.println("Bot move failed: " + e.getMessage());
         }
-        return Map.of("success", true, "newBoard", board.getCleanSquares(), "status", board.getGameState());
     }
+
+
 
     public ArrayList<String> getLegalMoves(String square, String piece) {
         return ChessGame.generateAllPossibleMoves(board, square, piece);
@@ -55,7 +113,6 @@ public class chessMatchHandler {
 
     public boolean processResignation(Player resigningPlayer) {
         String resigningColor = null;
-        // Match by username to ensure safety
         for (Map.Entry<Player, String> entry : players.entrySet()) {
             if (entry.getKey().getUsername().equals(resigningPlayer.getUsername())) {
                 resigningColor = entry.getValue();

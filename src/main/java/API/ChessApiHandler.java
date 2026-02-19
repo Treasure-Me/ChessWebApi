@@ -1,14 +1,15 @@
 package API;
 
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+import static API.ChessServerAPI.logger;
 import API.utility.Player;
 import API.utility.PlayerDaoImplementation;
 import io.javalin.http.Context;
 import logic.Board;
-
-import java.util.*;
-import java.util.stream.Stream;
-
-import static API.ChessServerAPI.logger;
 
 public class ChessApiHandler {
 
@@ -79,7 +80,6 @@ public class ChessApiHandler {
         Player player = context.sessionAttribute("user");
         if (player == null) { context.status(401).json(Map.of("error", "Not logged in")); return; }
 
-        // Check for existing game
         String existingGameId = GameManager.findGameIdByPlayer(player.getUsername());
         if (existingGameId != null) {
             chessMatchHandler game = GameManager.getGame(existingGameId);
@@ -92,23 +92,21 @@ public class ChessApiHandler {
             }
         }
 
-        // --- BOT GAME CREATION ---
         boolean isBot = context.queryParam("bot") != null && context.queryParam("bot").equals("true");
         if (isBot) {
-            // Create a dummy Stockfish player
             Player stockfish = new Player(UUID.randomUUID());
+            stockfish.setUsername("Stockfish");
+
 
             String gameId = java.util.UUID.randomUUID().toString();
-            // Start match immediately: Player vs Stockfish
+
             chessMatchHandler newGame = new chessMatchHandler(gameId, player, stockfish);
             GameManager.addGame(gameId, newGame);
 
             returnGameInfo(context, newGame, gameId);
             return;
         }
-        // -------------------------
 
-        // Normal Queue Logic
         if (!playersReadyForGame.contains(player)) {
             playersReadyForGame.add(player);
         }
@@ -152,7 +150,7 @@ public class ChessApiHandler {
                 MoveRequest req = context.bodyAsClass(MoveRequest.class);
 
                 System.out.println("--- PROCESSING MOVE ---");
-                System.out.println("User: " + sessionUser.getUsername() + " | Move: " + req.from + " -> " + req.to);
+                System.out.println("User: " + req.playerUsername + " | Move: " + req.from + " -> " + req.to);
 
                 Player humanInGame = null;
                 Player botInGame = null;
@@ -162,32 +160,35 @@ public class ChessApiHandler {
                     if (p.getUsername().equals(sessionUser.getUsername())) humanInGame = p;
                     if (p.getUsername().equals("Stockfish")) botInGame = p;
                 }
+                
+                if (req.playerUsername == null) {
 
-                if (humanInGame == null) {
-                    context.status(403).json(Map.of("success", false, "message", "You are not in this game"));
-                    return;
+                    if (humanInGame == null) {
+                        context.status(403).json(Map.of("success", false, "message", "You are not in this game"));
+                        return;
+                    }
+
+                    if (botInGame == null) {
+                        context.status(500).json(Map.of("error", "Bot missing from game"));
+                        return;
+                    }
                 }
 
-                if (botInGame == null) {
-                    System.out.println(">> WARNING: Stockfish missing. Auto-Adding now.");
-                    botInGame = new Player(UUID.randomUUID());
-
-                    String humanColor = game.players.get(humanInGame);
-                    String botColor = humanColor.equals("w") ? "b" : "w";
-
-                    game.players.put(botInGame, botColor);
-
-                    game.getBoard().setGameState("ongoing");
-
-                    System.out.println(">> Stockfish added as " + botColor);
-                }
+                    
 
                 Object result = null;
                 boolean success = false;
 
                 try {
-                    System.out.println("Attempt 1: Moving as Human (" + humanInGame.getUsername() + ")...");
-                    result = game.processMove(humanInGame, req.from, req.to);
+
+                    if (req.playerUsername == null){
+                        System.out.println("Attempt 1: Moving as bot (Stockfish)...");
+                        result = game.processMove(botInGame, req.from, req.to, req.promotion);
+                    }else{
+                        System.out.println("Attempt 1: Moving as Human (" + req.playerUsername + ")...");
+                        result = game.processMove(humanInGame, req.from, req.to, req.promotion);
+                    }
+                    
 
                     if (result instanceof Map) {
                         Map<?, ?> rMap = (Map<?, ?>) result;
@@ -198,17 +199,6 @@ public class ChessApiHandler {
                     }
                 } catch (Exception e) {
                     System.out.println(" > Attempt 1 Crashed: " + e.getMessage());
-                }
-
-                if (!success && botInGame != null) {
-                    System.out.println("Attempt 1 failed. Retrying as Bot (" + botInGame.getUsername() + ")...");
-                    try {
-                        result = game.processMove(botInGame, req.from, req.to);
-                        System.out.println(" > Bot Move Result: " + result);
-                    } catch (Exception e) {
-                        System.out.println(" > Attempt 2 Crashed: " + e.getMessage());
-                        result = Map.of("success", false, "message", "Bot move failed: " + e.getMessage());
-                    }
                 }
 
                 context.json(result != null ? result : Map.of("success", false));
@@ -280,6 +270,11 @@ public class ChessApiHandler {
         context.json(Map.of("success", true, "message", "Logged out"));
     }
 
-    static class MoveRequest { public String from; public String to; }
+    static class MoveRequest { 
+        public String from; 
+        public String to;
+        public String promotion;
+        public String playerUsername;
+    }
     static class LegalRequest { public String square; public String piece; }
 }

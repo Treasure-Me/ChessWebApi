@@ -30,14 +30,14 @@ class ChessEngineAPI {
         }
     }
 
-    static async makeMove(from, to) {
+    static async makeMove(from, to, promotion, playerUsername) {
         if (!this.activeGameId) return { success: false, message: "No active game" };
 
         try {
             const response = await fetch(`${this.baseURL}/api/game/${this.activeGameId}/move`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ from: from, to: to })
+                body: JSON.stringify({ from: from, to: to, promotion: promotion, playerUsername: playerUsername })
             });
             return await response.json();
         } catch (error) {

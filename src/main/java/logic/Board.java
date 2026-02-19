@@ -67,13 +67,11 @@ public class Board {
             if (row < 7) newFEN.append("/");
         }
 
-        // Preserve existing metadata (Turn, Rights, EnPassant, Clocks)
-        // We will toggle the turn, but keep rights (ChessGame handles rights updates)
+
         String[] oldParts = FENStringPosition.split(" ");
         String oldRights = (oldParts.length > 2) ? oldParts[2] : "-";
         String nextTurn = oldParts[1].equals("w") ? "b" : "w";
 
-        // Reconstruct: [Board] [Turn] [Rights] [EnPassant] [Half] [Full]
         this.FENStringPosition = newFEN + " " + nextTurn + " " + oldRights + " - 0 1";
     }
 
@@ -90,7 +88,7 @@ public class Board {
 
     public Integer[] processFileAndRank(String square) {
         int col = square.charAt(0) - 'a';
-        int row = '8' - square.charAt(1); // '8'->0, '1'->7
+        int row = '8' - square.charAt(1);
         if (col < 0 || col > 7 || row < 0 || row > 7) throw new IllegalArgumentException("Bounds");
         return new Integer[]{col, row};
     }
@@ -118,9 +116,8 @@ public class Board {
         return positions;
     }
 
-    // Getters/Setters
     public String getFENStringPosition() { return FENStringPosition; }
-    public void setRawFEN(String fen) { this.FENStringPosition = fen; } // Used by ChessGame to force rights update
+    public void setRawFEN(String fen) { this.FENStringPosition = fen; }
     public String getGameState() { return gameState; }
     public void setGameState(String state) { this.gameState = state; }
     public String[][] getSquares() { return squares; }

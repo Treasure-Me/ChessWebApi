@@ -19,7 +19,7 @@ public class ChessGame {
         };
     }
 
-    public static Board playGame(Board board, String playerMove) {
+    public static Board playGame(Board board, String playerMove, String promotionPiece) {
         String[] parts = playerMove.split("-");
         if (parts.length != 2) return board;
 
@@ -79,8 +79,20 @@ public class ChessGame {
                 return board;
             }
 
-            // Update FEN and Check for Mate
-            updateFEN(board, piece, from);
+            if (piece.equals("P") && to.charAt(1) == '8') {
+                String promo = (promotionPiece == null || promotionPiece.isEmpty()) ? "Q" : promotionPiece.toUpperCase();
+                board.setSquare(to, promo);
+            }
+
+            if (piece.equals("p") && to.charAt(1) == '1') {
+                String promo = (promotionPiece == null || promotionPiece.isEmpty()) ? "q" : promotionPiece.toLowerCase();
+                board.setSquare(to, promo);
+            }
+
+
+            String finalPiece = board.getSquare(to);
+            updateFEN(board, finalPiece, from);
+
 
             String nextTurn = isWhiteTurn ? "b" : "w";
             if (isCheckmate(board, nextTurn)) {

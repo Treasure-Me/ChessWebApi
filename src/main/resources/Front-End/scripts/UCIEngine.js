@@ -52,10 +52,20 @@ class UCIEngine {
         this.worker.postMessage('isready');
     }
 
-    startThinking(fen, depth = 15) {
+    startThinking(fen, depth = 15, movetime = null) {
         if (!this.isReady) return;
-        this.worker.postMessage(`position fen ${fen}`);
-        this.worker.postMessage(`go depth ${depth}`);
+        
+        if (movetime !== null){
+            if (typeof movetime === 'string'){
+                this.worker.postMessage(`position fen ${fen}`);
+                this.worker.postMessage(`go ${movetime}`);
+            }
+            this.worker.postMessage(`position fen ${fen}`);
+            this.worker.postMessage(`go movetime ${movetime}`);
+        }else{
+            this.worker.postMessage(`position fen ${fen}`);
+            this.worker.postMessage(`go depth ${depth}`);
+        }
     }
 
     stop() {
