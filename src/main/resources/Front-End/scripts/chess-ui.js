@@ -106,7 +106,6 @@ class ChessUI {
 
                 this.updateBoardState(existingState.newBoard);
                 this.gameLogic.load(existingState.fen);
-                this.updatePieces();
 
                 if (existingState.turn) {
                     this.currentPlayer = existingState.turn === 'w' ? 'white' : 'black';
@@ -156,7 +155,6 @@ class ChessUI {
             }
         });
 
-
         this.botEngine.onBestMove = (moveString) => {
             document.getElementById('loading-spinner').style.display = 'none';
             const move = ChessUtils.parseMove(moveString);
@@ -185,9 +183,7 @@ class ChessUI {
         const spinner = document.getElementById('loading-spinner');
         if (spinner) spinner.style.display = 'block';
 
-        const fen = this.gameLogic
-            ? this.gameLogic.fen()
-            : ChessUtils.boardToFen(this.currentBoard);
+        const fen = ChessUtils.boardToFen(this.currentBoard);
 
         setTimeout(() => this.botEngine.startThinking(fen, 18, 5000), 200);
     }
@@ -433,7 +429,7 @@ class ChessUI {
 
     analyzePosition() {
         if (this.botEngine && this.gameLogic) {
-            this.botEngine.startThinking(this.gameLogic.fen(), 32, 'infinite');
+            this.botEngine.startThinking(this.gameLogic.fen(), 32, 10000);
         }
     }
 

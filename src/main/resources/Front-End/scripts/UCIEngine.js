@@ -59,9 +59,11 @@ class UCIEngine {
             if (typeof movetime === 'string'){
                 this.worker.postMessage(`position fen ${fen}`);
                 this.worker.postMessage(`go ${movetime}`);
+            }else {
+                this.worker.postMessage(`position fen ${fen}`);
+                this.worker.postMessage(`go movetime ${movetime}`);
             }
-            this.worker.postMessage(`position fen ${fen}`);
-            this.worker.postMessage(`go movetime ${movetime}`);
+
         }else{
             this.worker.postMessage(`position fen ${fen}`);
             this.worker.postMessage(`go depth ${depth}`);
