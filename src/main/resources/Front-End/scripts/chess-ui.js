@@ -371,6 +371,11 @@ class ChessUI {
         }
     }
 
+    getPieceFromMove(from){
+        const rowCol = this.getRowColFromNotation(from);
+        return this.currentBoard[rowCol[0]][rowCol[1]];
+    }
+
     async makeMove(from, to, promotionalPiece, playerUsername) {
         if (this.gameMode === 'analysis' && this.gameLogic) {
             const move = this.gameLogic.move({ from: from, to: to, promotion: promotionalPiece });
