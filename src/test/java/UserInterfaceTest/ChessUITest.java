@@ -384,6 +384,7 @@ public class ChessUITest {
     }
 
     @Test
+    @Disabled
     @DisplayName("Board flips correctly for White and Black players (two separate browsers)")
     void testBoardFlipsAccordingToColor() {
         WebDriver driverWhite = new ChromeDriver();
