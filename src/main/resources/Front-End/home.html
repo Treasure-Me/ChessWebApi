@@ -76,8 +76,8 @@
             <textarea id="fen-input" placeholder="Paste FEN string here (e.g. rnbqk...)" rows="3" style="width: 100%; margin-bottom: 10px;"></textarea>
 
             <div class="modal-buttons">
-                <button class="btn btn-primary" onclick="startAnalysis()">Load Board</button>
-                <button class="btn btn-secondary" onclick="closeAnalysisModal()">Cancel</button>
+                <button id="load-board-btn" class="btn btn-primary" onclick="startAnalysis()">Load Board</button>
+                <button id="cancel-analysis-btn" class="btn btn-secondary" onclick="closeAnalysisModal()">Cancel</button>
             </div>
             <p style="font-size: 0.8em; color: gray; margin-top: 5px;">(PGN support coming soon)</p>
         </div>
