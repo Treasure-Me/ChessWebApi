@@ -59,8 +59,6 @@ public class ChessServerAPI {
     }
 
     private static void seedDemoData() {
-        PlayerDaoImplementation playerDaoImplementation = ServiceRegistry.lookup(PlayerDaoImplementation.class);
-
         Player player1 = new Player("samkelisozulu@mail.com", "Mageba", "abcdef");
         Player player2 = new Player("lukhoziarthur@mail.com", "Arturito", "123456");
         Player player3 = new Player("makamogugulakhe@mail.com", "optimusPrime", "IIIIIIIVVVI");
