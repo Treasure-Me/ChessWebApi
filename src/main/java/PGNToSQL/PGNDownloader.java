@@ -23,7 +23,7 @@ public class PGNDownloader {
                 Files.copy(website.openStream(), Paths.get("pgn-files/raw/" + fileName),
                         StandardCopyOption.REPLACE_EXISTING);
 
-                Thread.sleep(1000); // Be nice to the server
+                Thread.sleep(1000);
             } catch (Exception e) {
                 System.err.println("Failed to download: " + url);
             }
@@ -31,7 +31,6 @@ public class PGNDownloader {
     }
 
     public static void main(String[] args) {
-        // Create directories
         new java.io.File("pgn-files/raw").mkdirs();
         new java.io.File("pgn-files/processed").mkdirs();
         new java.io.File("pgn-files/converted").mkdirs();
