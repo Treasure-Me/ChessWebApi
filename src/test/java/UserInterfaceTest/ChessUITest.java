@@ -8,7 +8,6 @@ import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
-import java.sql.Driver;
 import java.time.Duration;
 import java.util.List;
 
@@ -44,10 +43,6 @@ public class ChessUITest {
             driver.quit();
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Helper methods
-    // -------------------------------------------------------------------------
 
 
     private void login(WebDriver driver){
@@ -125,7 +120,7 @@ public class ChessUITest {
         w.until(driver -> {
             try {
                 String name = driver.findElement(By.id("self-name")).getText().trim();
-                return !name.equals("Guest") && name.length() > 0;
+                return !name.equals("Guest") && !name.isEmpty();
             } catch (Exception e) {
                 return false;
             }
@@ -178,10 +173,6 @@ public class ChessUITest {
             return false;
         }
     }
-
-    // -------------------------------------------------------------------------
-    // 1. Basic Loading & Initial State
-    // -------------------------------------------------------------------------
 
     @Test
     @DisplayName("Bot mode loads → shows Stockfish + correct initial UI")
@@ -393,14 +384,12 @@ public class ChessUITest {
     }
 
     @Test
-    @Disabled
     @DisplayName("Board flips correctly for White and Black players (two separate browsers)")
     void testBoardFlipsAccordingToColor() {
         WebDriver driverWhite = new ChromeDriver();
         WebDriverWait waitWhite = new WebDriverWait(driverWhite, Duration.ofSeconds(20));
         driverWhite.manage().window().maximize();
 
-        // === Browser 2 (will become Black) ===
         WebDriver driverBlack = new ChromeDriver();
         WebDriverWait waitBlack = new WebDriverWait(driverBlack, Duration.ofSeconds(20));
         driverBlack.manage().window().maximize();
@@ -427,11 +416,10 @@ public class ChessUITest {
             assertEquals("♖", square(whiteDriver, 0, 0).getText().trim(), "White player: a8 should be black rook ♜");
 
             // === Verify Black sees flipped board (black pieces at bottom) ===
-            assertEquals("♖", square(blackDriver, 7, 0).getText().trim(), "Black player: a1 should be black rook ♜");
-            assertEquals("♜", square(blackDriver, 0, 0).getText().trim(), "Black player: a8 should be white rook ♖");
+            assertEquals("♖", square(blackDriver, 0, 0).getText().trim(), "Black player: a1 should be black rook ♜");
+            assertEquals("♜", square(blackDriver, 7, 7).getText().trim(), "Black player: a8 should be white rook ♖");
 
         } finally {
-            // Clean up both browsers
             driverWhite.quit();
             driverBlack.quit();
         }
