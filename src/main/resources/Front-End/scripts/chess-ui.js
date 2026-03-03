@@ -112,7 +112,7 @@ class ChessUI {
                     this.updatePlayerTurn();
 
                     if (this.currentPlayer === 'black'){
-                        this.startPolling();
+                        UpdateInterface.startWebSocket();
                         this.setUpBot();
                         return;
                     }
@@ -126,8 +126,7 @@ class ChessUI {
                 console.log("Server Game Created:", gameData);
                 this.updateStatus("New Game vs Stockfish");
             }
-
-            this.startPolling();
+            UpdateInterface.startWebSocket();
 
         } catch (e) {
             alert("Error: Server did not accept Bot Game.");
@@ -215,12 +214,12 @@ class ChessUI {
 
         if (data.white === this.currentUsername) {
             this.myColor = 'white';
-            this.isBoardFlipped = false; // White is at bottom
+            this.isBoardFlipped = false;
             opponentName = data.black || "Opponent";
         } 
         else if (data.black === this.currentUsername) {
             this.myColor = 'black';
-            this.isBoardFlipped = true;  // Black is at bottom -> FLIP!
+            this.isBoardFlipped = true;
             opponentName = data.white || "Opponent";
         } 
         else {
@@ -230,59 +229,14 @@ class ChessUI {
 
         this.updateStatus(`You are ${this.myColor}`);
 
-        // Update the Profile Names (Targeting the IDs from your HTML)
         const selfEl = document.getElementById('self-name');
         const oppEl = document.getElementById('opp-name');
         
         if (selfEl) selfEl.innerText = this.currentUsername;
         if (oppEl) oppEl.innerText = opponentName;
 
-        this.initializeBoard(); 
-        
-        this.startPolling();
-    }
-
-
-    startPolling() {
-        const dot = document.getElementById('sync-status');
-        this.pollingInterval = setInterval(async () => {
-            try {
-                if (this.gameMode === 'analysis') return;
-
-                const state = await ChessEngineAPI.getGameState();
-                if (state) {
-                    if(dot) {
-                        dot.style.backgroundColor = '#0f0';
-                        setTimeout(() => dot.style.backgroundColor = 'gray', 200);
-                    }
-
-                    if (state.newBoard) this.updateBoardState(state.newBoard);
-
-                    if (state.turn) {
-                        const sTurn = state.turn === 'w' ? 'white' : 'black';
-                        if (this.currentPlayer !== sTurn) {
-                            this.currentPlayer = sTurn;
-                            this.updatePlayerTurn();
-                        }
-                    }
-                    if (state.status && (state.status.includes("wins") || state.status.includes("Checkmate") || state.status.includes("Game Over"))) {
-                        this.showGameOverModal(state.status);
-                        clearInterval(this.pollingInterval);
-                    }
-                    
-                    if (state.status && (state.status.includes("promoting"))) {
-                        if (state.status.includes("black")){
-                            this.showBlackPromotionModal(state.status);
-                            clearInterval(this.pollingInterval);
-                        }else if (state.status.includes("white")){
-                            this.showWhitePromotionModal(state.status);
-                            clearInterval(this.pollingInterval);
-                        }
-                    }
-
-                } else { if(dot) dot.style.backgroundColor = 'red'; }
-            } catch (e) { if(dot) dot.style.backgroundColor = 'red'; }
-        }, 1000);
+        this.initializeBoard();
+        UpdateInterface.startWebSocket();
     }
 
     async handleSquareClick(row, col) {
@@ -596,7 +550,7 @@ class ChessUI {
     }
     
     getPieceSymbol(p) { 
-        const s = { 'k':'♔', 'q':'♕', 'r':'♖', 'b':'♗', 'n':'♘', 'p':'♙', 'K':'♚', 'Q':'♛', 'R':'♜', 'B':'♝', 'N':'♞', 'P':'♟' }; 
+        const s = { 'k':'♔', 'q':'♕', 'r':'♖', 'b':'♗', 'n':'♘', 'p':'♙', 'K':'♚', 'Q':'♛', 'R':'♜', 'B':'♝', 'N':'♞', 'P':'♟' };
         return s[p] || ''; 
     }
     
@@ -625,33 +579,24 @@ class ChessUI {
     }
 
     initializeBoard() {
-        this.boardElement.innerHTML = ''; 
-        
-        // visualRow 0 is the Top of the HTML element
-        // visualRow 7 is the Bottom of the HTML element
+        this.boardElement.innerHTML = '';
         for (let visualRow = 0; visualRow < 8; visualRow++) {
             for (let visualCol = 0; visualCol < 8; visualCol++) {
                 
                 let row, col;
 
                 if (this.isBoardFlipped) {
-                    // IF FLIPPED (Black at Bottom):
-                    // Top-Left corner (0,0) becomes Board Square (7,7) -> h1
                     row = 7 - visualRow; 
                     col = 7 - visualCol; 
                 } else {
-                    // NORMAL (White at Bottom):
-                    // Top-Left corner (0,0) is Board Square (0,0) -> a8
                     row = visualRow;
                     col = visualCol;
                 }
 
                 const sq = document.createElement('div');
                 
-                // CSS Styling: We use visual coordinates to keep the checkerboard pattern stable
                 sq.className = `square ${(visualRow + visualCol) % 2 === 0 ? 'light' : 'dark'}`;
                 
-                // DATA Attributes: We use Logical coordinates for game rules
                 sq.dataset.row = row;
                 sq.dataset.col = col;
                 

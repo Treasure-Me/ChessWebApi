@@ -27,7 +27,7 @@ public class WebDriverHealthCheckTest {
             options.addArguments("--headless=new");
             options.addArguments("--disable-gpu");
             options.addArguments("--window-size=1920,1080");
-            options.addArguments("--no-sandbox");           // important on Linux runners
+            options.addArguments("--no-sandbox");
             options.addArguments("--disable-dev-shm-usage");
         }
 

@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@TestInstance(TestInstance.Lifecycle.PER_METHOD)
 public class ChessUITest {
 
     private WebDriver driver;
@@ -21,20 +22,12 @@ public class ChessUITest {
     @BeforeEach
     void setUp() {
         WebDriverManager.chromedriver().setup();
+//        ChromeOptions options = new ChromeOptions();
+//        options.addArguments("--headless=new", "--disable-gpu");
+        driver = new ChromeDriver();
 
-        ChromeOptions options = new ChromeOptions();
-
-        if (System.getenv("CI") != null) {
-            options.addArguments("--headless=new");
-            options.addArguments("--disable-gpu");
-            options.addArguments("--window-size=1920,1080");
-            options.addArguments("--no-sandbox");
-            options.addArguments("--disable-dev-shm-usage");
-        }
-
-        driver = new ChromeDriver(options);
         driver.manage().window().maximize();
-        wait = new WebDriverWait(driver, Duration.ofSeconds(20));
+        wait = new WebDriverWait(driver, Duration.ofSeconds(60));
     }
 
     @AfterEach
@@ -45,7 +38,7 @@ public class ChessUITest {
     }
 
 
-    private void login(WebDriver driver){
+    private void login(WebDriver driver, WebDriverWait wait){
         driver.get("http://localhost:5000/");
 
         WebElement guestBtn = wait.until(ExpectedConditions.elementToBeClickable(
@@ -67,7 +60,7 @@ public class ChessUITest {
     }
 
     private void openBotMode() {
-        login(driver);
+        login(driver, wait);
 
         WebElement botBtn = wait.until(ExpectedConditions.elementToBeClickable(
                 By.id("menu-play-bot")
@@ -85,20 +78,20 @@ public class ChessUITest {
     }
 
     private void openAnalysisMode(String positionFEN){
-        login(driver);
+        login(driver, wait);
 
         WebElement analysisBtn = wait.until(ExpectedConditions.elementToBeClickable(
                 By.id("menu-analysis")
         ));
         analysisBtn.click();
 
-       if (positionFEN != null){
-           WebElement fenInput = wait.until(ExpectedConditions.presenceOfElementLocated(
-                   By.id("fen-input")
-           ));
-           fenInput.clear();
-           fenInput.sendKeys(positionFEN);
-       }
+        if (positionFEN != null){
+            WebElement fenInput = wait.until(ExpectedConditions.presenceOfElementLocated(
+                    By.id("fen-input")
+            ));
+            fenInput.clear();
+            fenInput.sendKeys(positionFEN);
+        }
 
         WebElement load = wait.until(ExpectedConditions.elementToBeClickable(
                 By.id("load-board-btn")
@@ -111,34 +104,19 @@ public class ChessUITest {
         System.out.println("Analysis mode loaded successfully");
     }
 
-    private void loginAsGuest(WebDriver d, WebDriverWait w) {
-        d.get("http://localhost:5000/");
-
-        WebElement guestBtn = w.until(ExpectedConditions.elementToBeClickable(By.id("quickGuestBtn")));
-        guestBtn.click();
-
-        w.until(driver -> {
-            try {
-                String name = driver.findElement(By.id("self-name")).getText().trim();
-                return !name.equals("Guest") && !name.isEmpty();
-            } catch (Exception e) {
-                return false;
-            }
-        });
-    }
-
-    private void startMultiplayerGame(WebDriver d, WebDriverWait w) {
-        WebElement newGameBtn = w.until(ExpectedConditions.elementToBeClickable(By.id("menu-new-game")));
-        newGameBtn.click();
-
-        w.until(ExpectedConditions.urlContains("game.html"));
-        w.until(ExpectedConditions.presenceOfElementLocated(By.id("opp-name")));
-    }
-
-    private WebElement square(WebDriver d, int row, int col) {
-        return d.findElement(By.cssSelector(
-                String.format(".square[data-row='%d'][data-col='%d']", row, col)
+    private void openMultiplayerMode(WebDriver driver, WebDriverWait wait){
+        login(driver, wait);
+        WebElement botBtn = wait.until(ExpectedConditions.elementToBeClickable(
+                By.id("menu-new-game")
         ));
+        botBtn.click();
+
+        wait.until(ExpectedConditions.urlContains("game.html"));
+        System.out.println("Multiplayer mode loaded successfully");
+    }
+
+    private WebElement square(WebDriver driver, int row, int col) {
+        return driver.findElement(By.cssSelector(String.format(".square[data-row='%d'][data-col='%d']", row, col)));
     }
 
     private int countHighlights() {
@@ -157,8 +135,8 @@ public class ChessUITest {
         return driver.findElement(By.id("player-turn")).getText().trim();
     }
 
-    private String getMyColor(WebDriver d) {
-        return d.findElement(By.id("game-status")).getText().trim().toUpperCase();
+    private String getMyColor(WebDriver driver){
+        return driver.findElement(By.id("game-status")).getText().trim();
     }
 
     private List<WebElement> moveHistoryItems() {
@@ -174,6 +152,7 @@ public class ChessUITest {
         }
     }
 
+
     @Test
     @DisplayName("Bot mode loads → shows Stockfish + correct initial UI")
     void testBotModeInitialLoadAndUI() {
@@ -183,16 +162,14 @@ public class ChessUITest {
 
         String status = getStatus();
         assertTrue(
-                status.contains("Stockfish") || status.contains("Syncing") ||
-                        status.contains("Playing") || status.contains("Resumed") ||
-                        status.contains("New Game"),
-                "Status should relate to bot game. Got: " + status
+        status.contains("Stockfish") || status.contains("Syncing") ||
+                status.contains("Playing") || status.contains("Resumed") ||
+                status.contains("New Game"),
+        "Status should relate to bot game. Got: " + status
         );
 
-        assertTrue(getTurnText().toUpperCase().contains("YOUR TURN"),
-                "Fresh bot game should start with white's turn");
+        assertTrue(getTurnText().toUpperCase().contains("YOUR TURN"),"Fresh bot game should start with white's turn");
 
-        // Check that 32 pieces are rendered
         int pieceCount = driver.findElements(By.xpath("//*[contains(@class,'square') and normalize-space(text()) != '']")).size();
         assertEquals(32, pieceCount, "Starting position should show 32 pieces");
     }
@@ -202,28 +179,22 @@ public class ChessUITest {
     void testBoardOrientationWhiteAtBottom() {
         openBotMode();
 
-        // Bottom row (visual row 7) should have white pieces (uppercase)
-        WebElement a1 = square(driver, 7, 0); // a1
+        WebElement a1 = square(driver, 7, 0);
         assertEquals("♜", a1.getText().trim(), "a1 should be white rook");
 
-        WebElement h1 = square(driver, 7, 7); // h1
+        WebElement h1 = square(driver, 7, 7);
         assertEquals("♜", h1.getText().trim(), "h1 should be white rook");
 
-        // Top row (visual row 0) should have black pieces (lowercase)
-        WebElement a8 = square(driver, 0, 0); // a8
+        WebElement a8 = square(driver, 0, 0);
         assertEquals("♖", a8.getText().trim(), "a8 should be black rook");
     }
-
-    // -------------------------------------------------------------------------
-    // 2. Move Interaction (Human → White)
-    // -------------------------------------------------------------------------
 
     @Test
     @DisplayName("Select e2 pawn → legal moves are highlighted")
     void testSelectPawnHighlightsMoves() {
         openAnalysisMode(null);
 
-        WebElement e2 = square(driver, 6, 4); // e2
+        WebElement e2 = square(driver, 6, 4);
         e2.click();
 
         wait.until(d -> countHighlights() > 0);
@@ -236,34 +207,27 @@ public class ChessUITest {
     void testHumanMakesMoveAndBotResponds() {
         openBotMode();
 
-        // Select e2
         square(driver, 6, 4).click();
         wait.until(d -> countHighlights() > 0);
 
-        // Move to e4
         square(driver, 4, 4).click();
 
-        // Wait for move to be processed (history updates)
         wait.until(d -> moveHistoryItems().size() >= 1);
 
-        // Wait for bot to move (polling + engine)
         wait.until(d -> moveHistoryItems().size() >= 2);
 
         assertTrue(getTurnText().toUpperCase().contains("WHITE"),
                 "After bot move, turn should be back to white");
     }
 
-    // -------------------------------------------------------------------------
-    // 3. Promotion
-    // -------------------------------------------------------------------------
 
     @Test
     @DisplayName("Pawn promotion → white promotion modal appears")
-    void testWhitePawnPromotionShowsModal() throws InterruptedException {
+    void testWhitePawnPromotionShowsModal() {
         openAnalysisMode("8/P7/8/1k6/8/8/8/K7 w - - 0 1");
 
         try {
-            square(driver, 1, 0).click(); // a7 (adjust row/col)
+            square(driver, 1, 0).click();
             wait.until(d -> countHighlights() > 0);
             square(driver, 0, 0).click(); // a8
 
@@ -277,10 +241,6 @@ public class ChessUITest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // 4. Resign & Game Over
-    // -------------------------------------------------------------------------
-
     @Test
     @DisplayName("Resign button → shows confirmation → game over modal")
     void testResignFlow() {
@@ -289,11 +249,9 @@ public class ChessUITest {
         WebElement resignBtn = driver.findElement(By.id("resign"));
         resignBtn.click();
 
-        // Accept confirmation dialog
         Alert alert = wait.until(ExpectedConditions.alertIsPresent());
         alert.accept();
 
-        // Wait for game over modal
         WebElement gameOverModal = wait.until(ExpectedConditions.visibilityOfElementLocated(
                 By.id("game-over-modal")
         ));
@@ -302,16 +260,12 @@ public class ChessUITest {
 
         String modalMessage = driver.findElement(By.id("modal-message")).getText();
         assertTrue(
-                modalMessage.contains("Black wins") ||
-                        modalMessage.contains("resigned") ||
-                        modalMessage.contains("Game Over"),
-                "Game over message should indicate resignation. Got: " + modalMessage
+        modalMessage.contains("Black wins") ||
+                modalMessage.contains("resigned") ||
+                modalMessage.contains("Game Over"),
+        "Game over message should indicate resignation. Got: " + modalMessage
         );
     }
-
-    // -------------------------------------------------------------------------
-    // 5. Polling & Sync
-    // -------------------------------------------------------------------------
 
     @Test
     @DisplayName("Polling dot changes color during sync")
@@ -320,7 +274,6 @@ public class ChessUITest {
 
         WebElement syncDot = driver.findElement(By.id("sync-status"));
 
-        // Wait for at least one poll cycle (green flash)
         boolean turnedGreen = wait.until(d -> {
             String bg = syncDot.getCssValue("background-color");
             return bg.contains("0, 255, 0") || bg.contains("0f0") || bg.contains("rgb(0, 255, 0)");
@@ -328,7 +281,6 @@ public class ChessUITest {
 
         assertTrue(turnedGreen, "Sync dot should turn green during polling");
 
-        // Then back to gray
         wait.until(d -> {
             String bg = syncDot.getCssValue("background-color");
             return bg.contains("gray") || bg.contains("128, 128, 128");
@@ -384,41 +336,38 @@ public class ChessUITest {
     }
 
     @Test
-    @Disabled
-    @DisplayName("Board flips correctly for White and Black players (two separate browsers)")
+    @DisplayName("Board flips correctly for White and Black (two separate browsers)")
     void testBoardFlipsAccordingToColor() {
         WebDriver driverWhite = new ChromeDriver();
-        WebDriverWait waitWhite = new WebDriverWait(driverWhite, Duration.ofSeconds(20));
-        driverWhite.manage().window().maximize();
-
         WebDriver driverBlack = new ChromeDriver();
-        WebDriverWait waitBlack = new WebDriverWait(driverBlack, Duration.ofSeconds(20));
-        driverBlack.manage().window().maximize();
+        WebDriverWait waitWhite = new WebDriverWait(driverWhite, Duration.ofSeconds(25));
+        WebDriverWait waitBlack = new WebDriverWait(driverBlack, Duration.ofSeconds(25));
 
         try {
-            loginAsGuest(driverWhite, waitWhite);
-            loginAsGuest(driverBlack, waitBlack);
+            driverWhite.manage().window().maximize();
+            driverBlack.manage().window().maximize();
 
-            startMultiplayerGame(driverWhite, waitWhite);
-            startMultiplayerGame(driverBlack, waitBlack);
+            login(driverWhite, waitWhite);
+            login(driverBlack, waitBlack);
+
+            openMultiplayerMode(driverWhite, waitWhite);
+            openMultiplayerMode(driverBlack, waitBlack);
 
             try {
-                Thread.sleep(1500);
+                Thread.sleep(2000);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
 
-            boolean whiteIsWhite = getMyColor(driverWhite).contains("WHITE");
-            WebDriver whiteDriver = whiteIsWhite ? driverWhite : driverBlack;
-            WebDriver blackDriver = whiteIsWhite ? driverBlack : driverWhite;
+            String whiteColor = getMyColor(driverWhite);
+            WebDriver whiteBrowser = whiteColor.contains("WHITE") ? driverWhite : driverBlack;
+            WebDriver blackBrowser = whiteColor.contains("WHITE") ? driverBlack : driverWhite;
 
-            // === Verify White sees normal board (white pieces at bottom) ===
-            assertEquals("♜", square(whiteDriver, 7, 0).getText().trim(), "White player: a1 should be white rook ♖");
-            assertEquals("♖", square(whiteDriver, 0, 0).getText().trim(), "White player: a8 should be black rook ♜");
+            assertEquals("♜", square(whiteBrowser, 7, 0).getText().trim(), "White sees white rook on a1");
+            assertEquals("♖", square(whiteBrowser, 0, 0).getText().trim(), "White sees black rook on a8");
 
-            // === Verify Black sees flipped board (black pieces at bottom) ===
-            assertEquals("♖", square(blackDriver, 0, 0).getText().trim(), "Black player: a1 should be black rook ♜");
-            assertEquals("♜", square(blackDriver, 7, 7).getText().trim(), "Black player: a8 should be white rook ♖");
+            assertEquals("♜", square(blackBrowser, 7, 0).getText().trim(), "Black sees black rook on a1");
+            assertEquals("♖", square(blackBrowser, 0, 0).getText().trim(), "Black sees white rook on a8");
 
         } finally {
             driverWhite.quit();

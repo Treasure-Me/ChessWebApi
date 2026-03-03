@@ -5,7 +5,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class Board {
-    // Row 0 = Rank 8 (Top), Row 7 = Rank 1 (Bottom)
     private final String[][] squares = new String[8][8];
     private String FENStringPosition;
     private String gameState;

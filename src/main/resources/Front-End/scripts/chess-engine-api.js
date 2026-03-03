@@ -2,7 +2,7 @@ class ChessEngineAPI {
     static baseURL = window.location.hostname === 'localhost'
         ? 'http://localhost:5000'
         : '';
-    static activeGameId = null; // Stores the ID of the current match
+    static activeGameId = null;
 
     static async newGame(isBot = false) {
         try {

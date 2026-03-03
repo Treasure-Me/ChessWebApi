@@ -56,6 +56,19 @@ public class ChessServerAPI {
                     "timestamp", System.currentTimeMillis()
             ));
         });
+        this.server.ws("/updates", ws -> {
+            ws.onConnect(ctx -> {
+                System.out.println("WebSocket client connected");
+            });
+
+            ws.onMessage(ctx -> {
+                System.out.println("Received from client: " + ctx.message());
+            });
+
+            ws.onClose(ctx -> {
+                System.out.println("WebSocket client disconnected");
+            });
+        });
     }
 
     private static void seedDemoData() {

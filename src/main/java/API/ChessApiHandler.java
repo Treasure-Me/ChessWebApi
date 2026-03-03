@@ -8,6 +8,7 @@ import java.util.UUID;
 import static API.ChessServerAPI.logger;
 import API.utility.Player;
 import API.utility.PlayerDaoImplementation;
+import API.utility.WebSocketBroadcaster;
 import io.javalin.http.Context;
 import logic.Board;
 
@@ -148,10 +149,6 @@ public class ChessApiHandler {
 
             case "move":
                 MoveRequest req = context.bodyAsClass(MoveRequest.class);
-
-                System.out.println("--- PROCESSING MOVE ---");
-                System.out.println("User: " + req.playerUsername + " | Move: " + req.from + " -> " + req.to);
-
                 Player humanInGame = null;
                 Player botInGame = null;
 
@@ -202,6 +199,7 @@ public class ChessApiHandler {
                 }
 
                 context.json(result != null ? result : Map.of("success", false));
+                WebSocketBroadcaster.broadcastGameUpdate(gameId, game.getGameState());
                 break;
 
             case "legal-moves":
