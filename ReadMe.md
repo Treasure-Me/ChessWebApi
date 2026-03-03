@@ -47,6 +47,14 @@ This project represents dedication to technical excellence and continuous learni
 - **Performance Optimization**: Balancing computational constraints with system requirements
 - **Continuous Integration**: Automated browser testing and build pipelines. (Update: Added CI highlight to reflect the `.github` workflows).
 
+## Live Deployment & Cloud Architecture
+
+The application is fully containerized and deployed to a live production environment:
+- **Live URL:** [chessworld.duckdns.org](https://chessworld.duckdns.org)
+- **Cloud Hosting:** Deployed to **Google Cloud Run** using a Dockerized environment.
+- **CI/CD Pipeline:** Integrated with GitHub Actions to automatically run Selenium UI tests before deployment.
+- **Networking:** Configured custom DNS mapping using **DuckDNS** to route traffic securely to the Google Cloud server instance.
+
 ## Architecture
 
 ```
