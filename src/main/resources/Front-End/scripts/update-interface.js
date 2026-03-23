@@ -1,12 +1,13 @@
 class UpdateInterface {
     static socket = null;
     static flashInterval = null;
+    static boardStates = [];
 
-    static startWebSocket() {
+    static startWebSocket(activeGameId) {
         const dot = document.getElementById('sync-status');
         this.startContinuousFlash(dot);
-
-        this.socket = new WebSocket("ws://localhost:5000/updates");
+        console.log(activeGameId);
+        this.socket = new WebSocket(`ws://localhost:5000/updates?gameId=${activeGameId}`);
 
         this.socket.onopen = () => {
             console.log("WebSocket connected");
@@ -19,7 +20,12 @@ class UpdateInterface {
 
                 this.flashGreen(dot);
 
-                if (state.newBoard) window.chessApp.updateBoardState(state.newBoard);
+                if (state.newBoard) {
+                    window.chessApp.updateBoardState(state.newBoard);
+                    this.boardStates.push(state.newBoard);
+                    console.log(state.newBoard);
+                }
+
                 if (state.turn) {
                     const sTurn = state.turn === 'w' ? 'white' : 'black';
                     if (window.chessApp.currentPlayer !== sTurn) {
@@ -51,7 +57,7 @@ class UpdateInterface {
             console.log("WebSocket closed. Reconnecting...");
             this.stopContinuousFlash();
             if (dot) dot.style.backgroundColor = 'red';
-            setTimeout(() => UpdateInterface.startWebSocket(), 3000);
+            setTimeout(() => UpdateInterface.startWebSocket(activeGameId), 3000);
         };
     }
 

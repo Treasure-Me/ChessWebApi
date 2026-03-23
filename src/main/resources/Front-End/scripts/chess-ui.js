@@ -18,6 +18,7 @@ class ChessUI {
         this.botEngine = null;
         this.engineReady = false;
         this.engineLoading = true;
+        this.viewedState = 0;
 
         this.gameLogic = null;
         this.isBoardFlipped = false;
@@ -52,25 +53,27 @@ class ChessUI {
         console.log("Initializing Analysis Mode...");
         this.updateStatus("Analysis Mode");
 
-        if (typeof Chess !== 'undefined') {
-            this.gameLogic = new Chess();
-        } else {
-            alert("Error: chess.js library not loaded! Analysis disabled.");
-            return;
-        }
-
         document.getElementById('eval-bar').style.display = 'block';
         const resignBtn = document.getElementById('resign');
         if(resignBtn) resignBtn.style.display = 'none';
 
         const storedFen = sessionStorage.getItem('analysis_fen');
+        const defaultFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
         if (storedFen) {
-            const success = this.gameLogic.load(storedFen);
-            if (!success) alert("Invalid FEN string. Loaded default.");
+            let data = await ChessEngineAPI.newGame(false, true, storedFen);
+            if (!data){
+                data = await ChessEngineAPI.newGame(false, true, defaultFen);
+                alert("Invalid FEN string. Loaded default.");
+            }
+        }else{
+            const data = await ChessEngineAPI.newGame(false, true, defaultFen);
         }
 
-        this.syncBoardFromFen(this.gameLogic.fen());
-        this.currentPlayer = this.gameLogic.turn() === 'w' ? 'white' : 'black';
+        const state = await ChessEngineAPI.getGameState();
+
+        this.syncBoardFromFen(state.fen);
+        this.currentPlayer = state.turn === 'w' ? 'white' : 'black';
         this.updatePlayerTurn();
 
         const engineUrl = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.0/stockfish.js';
@@ -92,10 +95,6 @@ class ChessUI {
         console.log("Initializing Bot Mode...");
         this.updateStatus("Syncing...");
 
-        if (typeof Chess !== 'undefined') {
-            this.gameLogic = new Chess();
-        }
-
         document.getElementById('opp-name').innerHTML = "Stockfish";
 
         try {
@@ -105,14 +104,13 @@ class ChessUI {
                 console.log("Resuming existing bot game...");
 
                 this.updateBoardState(existingState.newBoard);
-                this.gameLogic.load(existingState.fen);
+                const game = await ChessEngineAPI.newGame(true, false, existingState.fen)
 
                 if (existingState.turn) {
                     this.currentPlayer = existingState.turn === 'w' ? 'white' : 'black';
                     this.updatePlayerTurn();
 
                     if (this.currentPlayer === 'black'){
-                        UpdateInterface.startWebSocket();
                         this.setUpBot();
                         return;
                     }
@@ -126,7 +124,6 @@ class ChessUI {
                 console.log("Server Game Created:", gameData);
                 this.updateStatus("New Game vs Stockfish");
             }
-            UpdateInterface.startWebSocket();
 
         } catch (e) {
             alert("Error: Server did not accept Bot Game.");
@@ -216,7 +213,7 @@ class ChessUI {
             this.myColor = 'white';
             this.isBoardFlipped = false;
             opponentName = data.black || "Opponent";
-        } 
+        }
         else if (data.black === this.currentUsername) {
             this.myColor = 'black';
             this.isBoardFlipped = true;
@@ -236,7 +233,6 @@ class ChessUI {
         if (oppEl) oppEl.innerText = opponentName;
 
         this.initializeBoard();
-        UpdateInterface.startWebSocket();
     }
 
     async handleSquareClick(row, col) {
@@ -278,13 +274,7 @@ class ChessUI {
                 return;
             }
 
-            let isLegal = false;
-            if (this.gameMode === 'analysis' && this.gameLogic) {
-                const moves = this.gameLogic.moves({ square: sourcePos, verbose: true });
-                isLegal = moves.some(m => m.to === pos);
-            } else {
-                isLegal = this.legalMoves.includes(pos);
-            }
+            let isLegal = this.legalMoves.includes(pos);
 
             if (isLegal) {
                 await this.makeMove(sourcePos, toSquare, null, this.currentUsername);
@@ -299,7 +289,7 @@ class ChessUI {
         }
 
         if (piece) {
-            if (this.gameMode === 'analysis' || this.isOwnPiece(piece)) {
+            if (this.isOwnPiece(piece)) {
                 this.clearSelection();
                 await this.selectSquare(row, col, piece);
             }
@@ -311,18 +301,9 @@ class ChessUI {
         const sq = document.querySelector(`.square[data-row="${row}"][data-col="${col}"]`);
         if(sq) sq.classList.add('selected');
 
-        if (this.gameMode === 'analysis' && this.gameLogic) {
-            const pos = this.getSquareNotation(row, col);
-            const moves = this.gameLogic.moves({ square: pos, verbose: true });
-            this.legalMoves = moves.map(m => m.to);
-            this.highlightLegalMoves();
-        } else {
-            try {
-                const moves = await ChessEngineAPI.getLegalMoves(this.getSquareNotation(row, col), piece);
-                this.legalMoves = moves || [];
-                this.highlightLegalMoves();
-            } catch (e) {}
-        }
+        const moves = await ChessEngineAPI.getLegalMoves(this.getSquareNotation(row, col), piece);
+        this.legalMoves = moves || [];
+        this.highlightLegalMoves();
     }
 
     getPieceFromMove(from){
@@ -331,38 +312,19 @@ class ChessUI {
     }
 
     async makeMove(from, to, promotionalPiece, playerUsername) {
-        if (this.gameMode === 'analysis' && this.gameLogic) {
-            const move = this.gameLogic.move({ from: from, to: to, promotion: promotionalPiece });
-            if (move) {
-                this.syncBoardFromFen(this.gameLogic.fen());
-                this.addToHistory(from, to);
-                this.currentPlayer = this.gameLogic.turn() === 'w' ? 'white' : 'black';
-                this.updatePlayerTurn();
-                this.analyzePosition();
+
+        const result = await ChessEngineAPI.makeMove(from, to, promotionalPiece, playerUsername);
+        if (result.success) {
+            this.viewedState += 1;
+            this.updateBoardState(result.newBoard);
+            this.addToHistory(from, to);
+
+            this.currentPlayer = (this.currentPlayer === 'white') ? 'black' : 'white';
+            this.updatePlayerTurn();
+
+            if (this.gameMode === 'bot' && this.currentPlayer === 'black') {
+                this.triggerBot();
             }
-        } else {
-            try {
-                const result = await ChessEngineAPI.makeMove(from, to, promotionalPiece, playerUsername);
-                if (result.success) {
-                    this.updateBoardState(result.newBoard);
-                    this.addToHistory(from, to);
-
-                    if (this.gameMode === 'bot' && this.gameLogic) {
-                        this.gameLogic.move({ 
-                            from: from, 
-                            to: to, 
-                            promotion: promotionalPiece
-                        });
-                    }
-
-                    this.currentPlayer = (this.currentPlayer === 'white') ? 'black' : 'white';
-                    this.updatePlayerTurn();
-
-                    if (this.gameMode === 'bot' && this.currentPlayer === 'black') {
-                        this.triggerBot();
-                    }
-                }
-            } catch (e) { console.error(e); }
         }
     }
 
@@ -387,24 +349,29 @@ class ChessUI {
     }
 
     analyzePosition() {
-        if (this.botEngine && this.gameLogic) {
-            this.botEngine.startThinking(this.gameLogic.fen(), 32, 10000);
+        if (this.botEngine) {
+            const state = ChessEngineAPI.getGameState();
+            if (state.fen) {
+                this.botEngine.startThinking(state.fen, 32, 10000);
+            }
+            
         }
     }
 
-    updateEvalBar(score, isMate) {
+    async updateEvalBar(score, isMate) {
         const barFill = document.getElementById('eval-fill');
         const text = document.getElementById('eval-text');
-        if (!barFill || !text || !this.gameLogic) return;
+        if (!barFill || !text) return;
 
         let percentage = 50;
         let displayScore = "0.0";
+        const state = await ChessEngineAPI.getGameState();
 
         if (isMate) {
             if (score > 0) { percentage = 100; displayScore = `M${score}`; }
             else { percentage = 0; displayScore = `M${Math.abs(score)}`; }
         } else {
-            let whiteScore = this.gameLogic.turn() === 'w' ? score : -score;
+            let whiteScore = state.turn === 'w' ? score : -score;
             displayScore = (whiteScore / 100).toFixed(1);
             if (whiteScore > 0) displayScore = "+" + displayScore;
             const winningChance = 1 / (1 + Math.pow(10, -whiteScore / 400));
@@ -436,7 +403,10 @@ class ChessUI {
         this.updateBoardState(newBoard);
     }
 
-    async logout() { await ChessEngineAPI.logout(); window.location.href = 'loginPage.html'; }
+    async logout() { 
+        await ChessEngineAPI.logout(); window.location.href = 'loginPage.html'; 
+    }
+
     async resign() {
         if (!confirm("Are you sure you want to resign?")) return;
         try {
@@ -448,12 +418,53 @@ class ChessUI {
         } catch (e) { console.error(e); }
     }
 
-    setupGlobalListeners() {
-        const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+    async previousState() {
+        if (this.viewedState > 0){
+            this.viewedState = this.viewedState - 1;
+            const boardStates = await ChessEngineAPI.getBoardStates();
+            const fen = boardStates[this.viewedState];
+            const state = await ChessEngineAPI.getGameState();
+            const turn = state.turn;
+            const sTurn = turn === 'w' ? 'white' : 'black';
+            if (window.chessApp.currentPlayer !== sTurn) {
+                window.chessApp.currentPlayer = sTurn;
+                window.chessApp.updatePlayerTurn();
+            }
+            this.syncBoardFromFen(fen);
+        }
+    }
+
+    async nextState() {
+        const statesSize = UpdateInterface.boardStates.length;
+
+        if (this.viewedState < statesSize){
+            this.viewedState = this.viewedState + 1;
+            const boardStates = await ChessEngineAPI.getBoardStates();
+            const fen = boardStates[this.viewedState];
+            const state = await ChessEngineAPI.getGameState();
+            const turn = state.turn;
+            const sTurn = turn === 'w' ? 'white' : 'black';
+            if (window.chessApp.currentPlayer !== sTurn) {
+                window.chessApp.currentPlayer = sTurn;
+                window.chessApp.updatePlayerTurn();
+            }
+            this.syncBoardFromFen(fen);
+        }
+    }
+
+    setupGlobalListeners(){
+
+        const bind = (id, fn) => { 
+            const el = document.getElementById(id); 
+            if (el) el.onclick = fn;
+        };
+
         bind('home', () => window.location.href = 'home.html');
         bind('resign', () => this.resign());
         bind('logout-btn', () => this.logout());
         bind('modal-new-game', () => location.reload());
+        bind('previous-state', () => this.previousState());
+        bind('next-state', () => this.nextState());
     }
 
     initHomePage() {
@@ -511,7 +522,7 @@ class ChessUI {
     }
     
     updateBoardState(b) { 
-        this.currentBoard = b; 
+        this.currentBoard = b;
         this.updatePieces(); 
     }
     
@@ -519,7 +530,7 @@ class ChessUI {
         const squares = document.getElementsByClassName('square'); 
         for (let sq of squares) { 
             const r = parseInt(sq.dataset.row); 
-            const c = parseInt(sq.dataset.col); 
+            const c = parseInt(sq.dataset.col);
             const p = this.currentBoard[r] ? this.currentBoard[r][c] : ''; 
             sq.textContent = p ? this.getPieceSymbol(p) : ''; 
             sq.style.color = (p === p.toUpperCase()) ? 'white' : 'black'; 
@@ -527,10 +538,11 @@ class ChessUI {
     }
     
     highlightLegalMoves() { 
-        this.legalMoves.forEach(m => { const [r, c] = this.getRowColFromNotation(m); 
-                                        const sq = document.querySelector(`.square[data-row="${r}"][data-col="${c}"]`);
-                                        if(sq) sq.classList.add(this.currentBoard[r][c] ? 'legal-capture' : 'legal-move'); 
-                                    }); 
+        this.legalMoves.forEach(m => { 
+            const [r, c] = this.getRowColFromNotation(m); 
+            const sq = document.querySelector(`.square[data-row="${r}"][data-col="${c}"]`);
+            if(sq) sq.classList.add(this.currentBoard[r][c] ? 'legal-capture' : 'legal-move'); 
+        }); 
     }
     
     clearSelection() { 

@@ -4,23 +4,28 @@ class ChessEngineAPI {
         : '';
     static activeGameId = null;
 
-    static async newGame(isBot = false) {
+    static async newGame(isBot = false, isAnalysis = false, fen = null) {
         try {
-            // Append ?bot=true if requested
-            const url = isBot
-                ? `${this.baseURL}/api/new-game?bot=true`
-                : `${this.baseURL}/api/new-game`;
+
+            const url = isBot 
+            ? `${this.baseURL}/api/new-game?bot=true` : (isAnalysis 
+            ? `${this.baseURL}/api/new-game?analysis=true` : `${this.baseURL}/api/new-game`);
+
+            console.log(url);
 
             const response = await fetch(url, {
-                method: 'POST'
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({fen: fen })
             });
-            if (!response.ok) throw new Error(`New Game failed: ${response.status}`);
+            if (!response.ok) return null;
 
             const data = await response.json();
 
             if (data.gameId) {
                 this.activeGameId = data.gameId;
                 console.log("Joined Game ID:", this.activeGameId);
+                UpdateInterface.startWebSocket(this.activeGameId);
             }
 
             return data;
@@ -67,12 +72,28 @@ class ChessEngineAPI {
         if (!this.activeGameId) return null;
 
         try {
-            // Note: We use GET here as it is read-only
-            const response = await fetch(`${this.baseURL}/api/game/${this.activeGameId}/state`);
-            if (!response.ok) return null;
+            const response = await fetch(`${this.baseURL}/api/game/${this.activeGameId}/state`, {
+                method: 'GET'
+            });
+            if (!response.ok) throw new Error(`State change failed: ${response.status}`);
             return await response.json();
         } catch (error) {
             return null;
+        }
+    }
+
+    static async getBoardStates() {
+        if (!this.activeGameId) return null;
+
+        try {
+            const response = await fetch(`${this.baseURL}/api/game/board-states`, {
+                method: 'GET'
+            });
+            if (!response.ok) throw new Error(`State change failed: ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            throw error;
         }
     }
 
@@ -121,4 +142,7 @@ class ChessEngineAPI {
     static setMatchPort(port) {
         console.log("Ports are deprecated in favor of Game IDs.");
     }
+
+
 }
+document.addEventListener('DOMContentLoaded', () => { window.chessApi = new ChessEngineAPI(); });

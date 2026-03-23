@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import API.utility.Player;
+import API.utility.WebSocketBroadcaster;
 import logic.Board;
 import logic.ChessGame;
 
@@ -15,6 +16,7 @@ public class chessMatchHandler {
     private Board board;
     private boolean vsBot = false;
     private Player botPlayer = null;
+    private boolean isAnalysis = false;
 
 
     public chessMatchHandler(String gameId, Player p1, Player p2) {
@@ -42,6 +44,18 @@ public class chessMatchHandler {
         }
     }
 
+    public chessMatchHandler(String gameId, Player p1) {
+        this.gameId = gameId;
+        this.board = new Board();
+        this.isAnalysis = true;
+
+        if (Math.random() < 0.5) {
+            players.put(p1, "w");
+        } else {
+            players.put(p1, "b");
+        }
+    }
+
 
     public Map<String, Object> getGameState() {
         return Map.of(
@@ -63,7 +77,10 @@ public class chessMatchHandler {
         String color = players.get(player);
         String fenTurn = board.getFENStringPosition().split(" ")[1];
 
-        if (!color.equals(fenTurn)){
+
+        if (isAnalysis){
+            //avoid next block
+        }else if (!color.equals(fenTurn)){
             System.out.println("Color error!");
             return Map.of("success", false, "message", "Not your turn");
         }
@@ -73,7 +90,7 @@ public class chessMatchHandler {
         board = ChessGame.playGame(board, from + "-" + to, promotion);
         
 
-        if (board.getGameState().startsWith("Invalid") || board.getGameState().startsWith("Illegal") || board.getGameState().startsWith("Cannot")) {
+        if (board.getGameState().startsWith("Invalid") || board.getGameState().startsWith("Illegal") || board.getGameState().startsWith("Cannot") || board.getGameState().startsWith("Not")) {
             System.out.println("Stuck state");
             return Map.of("success", false, "message", board.getGameState());
         }
@@ -86,7 +103,7 @@ public class chessMatchHandler {
                 makeBotMove(from, to);
             }
         }
-        System.out.println("Made it here");
+        WebSocketBroadcaster.broadcastGameUpdate(gameId, getGameState());
         return Map.of(
                 "success", true,
                 "newBoard", board.getCleanSquares(),
@@ -134,5 +151,9 @@ public class chessMatchHandler {
 
     public Board getBoard(){
         return board;
+    }
+
+    public void setNewBoard(Board baord){
+        this.board = board;
     }
 }

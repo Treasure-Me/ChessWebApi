@@ -1,8 +1,10 @@
 package API;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import API.utility.WebSocketBroadcaster;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,29 +46,52 @@ public class ChessServerAPI {
         this.server.get("/", ChessApiHandler::loadLoginPage);
         this.server.post("/api/resign", ChessApiHandler::resignMatch);
         this.server.post("/api/game/{gameId}/{action}", ChessApiHandler::handleGameAction);
+        this.server.get("/api/game/board-states", ChessApiHandler::getBoardStates);
         this.server.get("/api/game/{gameId}/state", context -> {
             String gId = context.pathParam("gameId");
             chessMatchHandler g = GameManager.getGame(gId);
-            if (g != null) context.json(g.getGameState());
+            if (g != null){
+                context.json(g.getGameState());
+            }
         });
         this.server.get("/api/health", ctx -> {
             ctx.json(Map.of(
-                    "status", "online",
-                    "players", ChessApiHandler.playersLoggedIn.size(),
-                    "timestamp", System.currentTimeMillis()
+                "status", "online",
+                "players", ChessApiHandler.playersLoggedIn.size(),
+                "timestamp", System.currentTimeMillis()
             ));
         });
         this.server.ws("/updates", ws -> {
             ws.onConnect(ctx -> {
-                System.out.println("WebSocket client connected");
+                ctx.session.setIdleTimeout(Duration.ofHours(1));
+                String gameId = ctx.queryParam("gameId");
+                if (gameId == null || gameId.isBlank()) {
+                    System.err.println("WebSocket connect rejected: missing gameId");
+                    ctx.send("{\"error\":\"missing gameId\"}");
+                    ctx.session.close();
+                    return;
+                } else {
+                    ctx.sessionAttribute("gameId");
+                    WebSocketBroadcaster.addSession(gameId, ctx);
+                }
+
+                System.out.println("WebSocket client connected for gameId=" + gameId);
             });
 
             ws.onMessage(ctx -> {
+                if (ctx.message().contains("\"ping\"") || ctx.message().contains("ping")) {
+                    return;
+                }
                 System.out.println("Received from client: " + ctx.message());
             });
 
             ws.onClose(ctx -> {
-                System.out.println("WebSocket client disconnected");
+
+                String gameId = ctx.sessionAttribute("gameId");
+                if (gameId != null) {
+                    WebSocketBroadcaster.removeSession(gameId, ctx);
+                    System.out.println("Cleaned up dead WebSocket for gameId=" + gameId);
+                }
             });
         });
     }

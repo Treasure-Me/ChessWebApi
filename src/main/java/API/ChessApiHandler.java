@@ -1,21 +1,25 @@
 package API;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static API.ChessServerAPI.logger;
 import API.utility.Player;
 import API.utility.PlayerDaoImplementation;
 import API.utility.WebSocketBroadcaster;
 import io.javalin.http.Context;
+import io.javalin.websocket.WsContext;
 import logic.Board;
 
 public class ChessApiHandler {
 
     public static ArrayList<Player> playersLoggedIn = new ArrayList<>();
     private static ArrayList<Player> playersReadyForGame = new ArrayList<>();
+    private static ArrayList<String> boardStates = new ArrayList<>();
 
     public static void login(Context context) {
         try {
@@ -94,6 +98,8 @@ public class ChessApiHandler {
         }
 
         boolean isBot = context.queryParam("bot") != null && context.queryParam("bot").equals("true");
+        boolean isAnalysis = context.queryParam("analysis") != null && context.queryParam("analysis").equals("true");
+
         if (isBot) {
             Player stockfish = new Player(UUID.randomUUID());
             stockfish.setUsername("Stockfish");
@@ -102,6 +108,23 @@ public class ChessApiHandler {
             String gameId = java.util.UUID.randomUUID().toString();
 
             chessMatchHandler newGame = new chessMatchHandler(gameId, player, stockfish);
+            GameManager.addGame(gameId, newGame);
+
+            returnGameInfo(context, newGame, gameId);
+            return;
+        }else if (isAnalysis){
+            System.out.println("Analysis");
+            String gameId = java.util.UUID.randomUUID().toString();
+            NewGame newGameBody = context.bodyAsClass(NewGame.class);
+            String fen = newGameBody.fen;
+
+            chessMatchHandler newGame = new chessMatchHandler(gameId, player);
+
+            if (fen != null){
+                Board board = new Board(fen);
+                newGame.setNewBoard(board);
+            }
+            
             GameManager.addGame(gameId, newGame);
 
             returnGameInfo(context, newGame, gameId);
@@ -140,7 +163,11 @@ public class ChessApiHandler {
         String action = context.pathParam("action");
 
         chessMatchHandler game = GameManager.getGame(gameId);
-        if (game == null) { context.status(404).json(Map.of("error", "Game not found")); return; }
+
+        if (game == null) { 
+            context.status(404).json(Map.of("error", "Game not found"));
+            return; 
+        }
 
         switch (action) {
             case "state":
@@ -192,6 +219,8 @@ public class ChessApiHandler {
                         if (rMap.containsKey("success") && Boolean.TRUE.equals(rMap.get("success"))) {
                             success = true;
                             System.out.println(" > Success!");
+                            Map<String, Object> state = game.getGameState();
+                            boardStates.add((String) state.get("fen"));
                         }
                     }
                 } catch (Exception e) {
@@ -199,7 +228,6 @@ public class ChessApiHandler {
                 }
 
                 context.json(result != null ? result : Map.of("success", false));
-                WebSocketBroadcaster.broadcastGameUpdate(gameId, game.getGameState());
                 break;
 
             case "legal-moves":
@@ -212,8 +240,11 @@ public class ChessApiHandler {
                 for (Player p : game.players.keySet()) {
                     if (p.getUsername().equals(sessionUser.getUsername())) resigner = p;
                 }
-                if (resigner != null && game.processResignation(resigner)) context.json(Map.of("success", true));
-                else context.status(403).json(Map.of("error", "Not authorized"));
+                if (resigner != null && game.processResignation(resigner)){
+                    context.json(Map.of("success", true));
+                } else{
+                    context.status(403).json(Map.of("error", "Not authorized"));
+                }
                 break;
 
             default:
@@ -233,6 +264,10 @@ public class ChessApiHandler {
         } else {
             context.status(400).json(Map.of("error", "No active game found"));
         }
+    }
+
+    public static void getBoardStates(Context context){
+        context.json(boardStates);
     }
 
     public static void createAccount(Context context) {
@@ -275,4 +310,5 @@ public class ChessApiHandler {
         public String playerUsername;
     }
     static class LegalRequest { public String square; public String piece; }
+    static class NewGame { public String fen; }
 }
