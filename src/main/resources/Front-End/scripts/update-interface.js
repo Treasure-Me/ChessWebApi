@@ -6,7 +6,6 @@ class UpdateInterface {
     static startWebSocket(activeGameId) {
         const dot = document.getElementById('sync-status');
         this.startContinuousFlash(dot);
-        console.log(activeGameId);
         this.socket = new WebSocket(`ws://localhost:5000/updates?gameId=${activeGameId}`);
 
         this.socket.onopen = () => {
@@ -17,12 +16,11 @@ class UpdateInterface {
         this.socket.onmessage = (event) => {
             try {
                 const state = JSON.parse(event.data);
-
+                console.log(state);
                 this.flashGreen(dot);
 
                 if (state.newBoard) {
                     window.chessApp.updateBoardState(state.newBoard);
-                    this.boardStates.push(state.newBoard);
                     console.log(state.newBoard);
                 }
 

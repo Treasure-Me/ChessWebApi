@@ -1,6 +1,7 @@
 package API;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -23,24 +24,24 @@ public class chessMatchHandler {
         this.gameId = gameId;
         this.board = new Board();
 
-        if (Math.random() < 0.5) {
-            players.put(p1, "w");
-            players.put(p2, "b");
-        } else {
-            players.put(p1, "b");
-            players.put(p2, "w");
-        }
-
-        if (p1.getUsername().equals("Stockfish")) {
+        if (p1.getUsername().equals("Stockfish") || p1.getUsername().equals("DevBot")) {
             vsBot = true;
             botPlayer = p1;
             players.put(p2, "w");
             players.put(p1, "b");
-        } else if (p2.getUsername().equals("Stockfish")) {
+        } else if (p2.getUsername().equals("Stockfish") || p2.getUsername().equals("DevBot")) {
             vsBot = true;
             botPlayer = p2;
             players.put(p1, "w");
             players.put(p2, "b");
+        }else{
+            if (Math.random() < 0.5) {
+                players.put(p1, "w");
+                players.put(p2, "b");
+            } else {
+                players.put(p1, "b");
+                players.put(p2, "w");
+            }
         }
     }
 
@@ -67,7 +68,6 @@ public class chessMatchHandler {
     }
 
     public Map<String, Object> processMove(Player player, String from, String to, String promotion) {
-        System.out.println("I ended here");
         if (!players.containsKey(player)){
             System.out.println("Player error!");
             return Map.of("success", false, "message", "Not a player");
@@ -85,24 +85,22 @@ public class chessMatchHandler {
             return Map.of("success", false, "message", "Not your turn");
         }
 
-
-        System.out.println("I made it past color and player");
         board = ChessGame.playGame(board, from + "-" + to, promotion);
-        
 
         if (board.getGameState().startsWith("Invalid") || board.getGameState().startsWith("Illegal") || board.getGameState().startsWith("Cannot") || board.getGameState().startsWith("Not")) {
             System.out.println("Stuck state");
             return Map.of("success", false, "message", board.getGameState());
         }
 
-        if (vsBot) {
-            String nextTurn = board.getFENStringPosition().split(" ")[1];
-            String botColor = players.get(botPlayer);
+        // if (vsBot) {
+        //     String nextTurn = board.getFENStringPosition().split(" ")[1];
+        //     String botColor = players.get(botPlayer);
 
-            if (nextTurn.equals(botColor) && board.getGameState().equals("ongoing")) {
-                makeBotMove(from, to);
-            }
-        }
+        //     if (nextTurn.equals(botColor) && board.getGameState().equals("ongoing")) {
+        //         makeBotMove(from, to);
+        //     }
+        // }
+
         WebSocketBroadcaster.broadcastGameUpdate(gameId, getGameState());
         return Map.of(
                 "success", true,
@@ -111,16 +109,16 @@ public class chessMatchHandler {
         );
     }
 
-    private void makeBotMove(String from, String to) {
+    // private void makeBotMove(String from, String to) {
 
-        try {
+    //     try {
 
-            board = ChessGame.playGame(board, from + "-" + to, null);
+    //         board = ChessGame.playGame(board, from + "-" + to, null);
 
-        } catch (Exception e) {
-            System.out.println("Bot move failed: " + e.getMessage());
-        }
-    }
+    //     } catch (Exception e) {
+    //         System.out.println("Bot move failed: " + e.getMessage());
+    //     }
+    // }
 
 
 
@@ -142,6 +140,7 @@ public class chessMatchHandler {
         String winner = resigningColor.equals("w") ? "Black" : "White";
         String loser = resigningColor.equals("w") ? "White" : "Black";
         board.setGameState("Game Over: " + winner + " wins! (" + loser + " resigned)");
+        WebSocketBroadcaster.broadcastGameUpdate(this.gameId, getGameState());
         return true;
     }
 

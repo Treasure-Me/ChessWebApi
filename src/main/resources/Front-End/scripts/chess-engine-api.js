@@ -4,12 +4,12 @@ class ChessEngineAPI {
         : '';
     static activeGameId = null;
 
-    static async newGame(isBot = false, isAnalysis = false, fen = null) {
+    static async newGame(isBot = false, isAnalysis = false, isDevBot = false, fen = null) {
         try {
 
-            const url = isBot 
+            const url = isDevBot ? `${this.baseURL}/api/new-game?devbot=true` : (isBot
             ? `${this.baseURL}/api/new-game?bot=true` : (isAnalysis 
-            ? `${this.baseURL}/api/new-game?analysis=true` : `${this.baseURL}/api/new-game`);
+            ? `${this.baseURL}/api/new-game?analysis=true` : `${this.baseURL}/api/new-game`));
 
             console.log(url);
 
@@ -25,7 +25,6 @@ class ChessEngineAPI {
             if (data.gameId) {
                 this.activeGameId = data.gameId;
                 console.log("Joined Game ID:", this.activeGameId);
-                UpdateInterface.startWebSocket(this.activeGameId);
             }
 
             return data;
@@ -136,7 +135,20 @@ class ChessEngineAPI {
     }
 
     static async getBestMove(depth) {
-        return null;
+        if (!this.activeGameId) return null;
+
+        try {
+            const response = await fetch(`${this.baseURL}/api/game/${this.activeGameId}/best-move`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ depth: depth})
+            });
+            if (!response.ok) return null;
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            return null;
+        }
     }
 
     static setMatchPort(port) {

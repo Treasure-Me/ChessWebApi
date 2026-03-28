@@ -5,7 +5,7 @@ class ChessUI {
 
         const urlParams = new URLSearchParams(window.location.search);
         const modeParam = urlParams.get('mode');
-        this.gameMode = modeParam === 'bot' ? 'bot' : (modeParam === 'analysis' ? 'analysis' : 'online');
+        this.gameMode = modeParam === 'devbot' ? 'devbot' : (modeParam === 'bot' ? 'bot' : (modeParam === 'analysis' ? 'analysis' : 'online'));
 
         this.selectedSquare = null;
         this.legalMoves = [];
@@ -37,7 +37,7 @@ class ChessUI {
         if (this.currentPage === 'game') {
             await this.fetchAndSetUsername();
 
-            if (this.gameMode === 'bot') {
+            if (this.gameMode === 'bot' || this.gameMode === 'devbot') {
                 await this.initBotMode();
             } else if (this.gameMode === 'analysis') {
                 await this.initAnalysisMode();
@@ -61,13 +61,13 @@ class ChessUI {
         const defaultFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
         if (storedFen) {
-            let data = await ChessEngineAPI.newGame(false, true, storedFen);
+            let data = await ChessEngineAPI.newGame(false, true, false,  storedFen);
             if (!data){
-                data = await ChessEngineAPI.newGame(false, true, defaultFen);
+                data = await ChessEngineAPI.newGame(false, true, false,  defaultFen);
                 alert("Invalid FEN string. Loaded default.");
             }
         }else{
-            const data = await ChessEngineAPI.newGame(false, true, defaultFen);
+            const data = await ChessEngineAPI.newGame(false, true, false,  defaultFen);
         }
 
         const state = await ChessEngineAPI.getGameState();
@@ -94,8 +94,7 @@ class ChessUI {
     async initBotMode() {
         console.log("Initializing Bot Mode...");
         this.updateStatus("Syncing...");
-
-        document.getElementById('opp-name').innerHTML = "Stockfish";
+        let opponentName = "Bot";
 
         try {
             const existingState = await ChessEngineAPI.getGameState();
@@ -104,7 +103,9 @@ class ChessUI {
                 console.log("Resuming existing bot game...");
 
                 this.updateBoardState(existingState.newBoard);
-                const game = await ChessEngineAPI.newGame(true, false, existingState.fen)
+                const game = this.gameMode === 'bot'? await ChessEngineAPI.newGame(true, false, false, existingState.fen) : await ChessEngineAPI.newGame(false, false, true, existingState.fen);
+                opponentName = game.black;
+                document.getElementById('opp-name').innerHTML = opponentName;
 
                 if (existingState.turn) {
                     this.currentPlayer = existingState.turn === 'w' ? 'white' : 'black';
@@ -120,9 +121,12 @@ class ChessUI {
             }
             else {
                 console.log("Creating new bot game...");
-                const gameData = await ChessEngineAPI.newGame(true);
+                const gameData = this.gameMode === 'bot' ? await ChessEngineAPI.newGame(true, false, false) : await ChessEngineAPI.newGame(false, false, true);
+                opponentName = gameData.black;
+                document.getElementById('opp-name').innerHTML = opponentName;
                 console.log("Server Game Created:", gameData);
-                this.updateStatus("New Game vs Stockfish");
+                this.updateStatus(`New Game vs ${opponentName}`);
+                UpdateInterface.startWebSocket(gameData.gameId);
             }
 
         } catch (e) {
@@ -130,10 +134,22 @@ class ChessUI {
         }
 
         this.setUpBot();
-
     }
 
     setUpBot(){
+
+        if (this.gameMode === 'devbot'){
+            this.engineReady = true;
+            this.engineLoading = false;
+            this.updateStatus("Playing vs Devbot");
+
+            if (this.currentPlayer === 'black') {
+                console.log("Resuming bot thinking...");
+                this.triggerBot();
+            }
+            return;
+        }
+
         const engineUrl = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.0/stockfish.js';
         this.botEngine = new UCIEngine(engineUrl);
 
@@ -169,7 +185,19 @@ class ChessUI {
     }
 
     triggerBot() {
-        if (this.gameMode !== 'bot') return;
+        if (this.gameMode === 'devbot'){
+            const spinner = document.getElementById('loading-spinner');
+            if (spinner) spinner.style.display = 'block';
+            const data = ChessEngineAPI.getBestMove(4);
+            if (data){
+                const move = data.move;
+                const from = move.split("-")[0];
+                const to = move.split("-")[1];
+                this.makeMove(from, to, null, "DevBot");
+                document.getElementById('loading-spinner').style.display = 'none';
+                return;
+            }
+        }else if (this.gameMode !== 'bot') return;
 
         if (!this.engineReady) {
             console.log("Engine not ready yet...");
@@ -208,6 +236,24 @@ class ChessUI {
 
     startOnlineMatch(data) {
         let opponentName = "Opponent";
+        const state = ChessEngineAPI.getGameState();
+
+        if (state.status === "ongoing"){
+            console.log("Resuming existing online game...");
+
+            this.updateBoardState(state.newBoard);
+
+            if (state.turn) {
+                this.currentPlayer = state.turn === 'w' ? 'white' : 'black';
+                this.updatePlayerTurn();
+
+                if (this.currentPlayer === 'black'){
+                    this.setUpBot();
+                    UpdateInterface.startWebSocket(data.gameId);
+                    return;
+                }
+            }
+        }
 
         if (data.white === this.currentUsername) {
             this.myColor = 'white';
@@ -233,13 +279,14 @@ class ChessUI {
         if (oppEl) oppEl.innerText = opponentName;
 
         this.initializeBoard();
+        UpdateInterface.startWebSocket(data.gameId);
     }
 
     async handleSquareClick(row, col) {
         if (this.gameMode === 'analysis') {
         } else if (this.gameMode === 'online') {
             if (this.myColor !== 'spectator' && this.myColor !== this.currentPlayer) return;
-        } else if (this.gameMode === 'bot') {
+        }else if (this.gameMode === 'bot' || this.gameMode === 'devbot') {
             if (!this.engineReady) return;
             if (this.currentPlayer !== 'white') return;
         }
@@ -306,23 +353,14 @@ class ChessUI {
         this.highlightLegalMoves();
     }
 
-    getPieceFromMove(from){
-        const rowCol = this.getRowColFromNotation(from);
-        return this.currentBoard[rowCol[0]][rowCol[1]];
-    }
-
     async makeMove(from, to, promotionalPiece, playerUsername) {
-
         const result = await ChessEngineAPI.makeMove(from, to, promotionalPiece, playerUsername);
         if (result.success) {
             this.viewedState += 1;
             this.updateBoardState(result.newBoard);
             this.addToHistory(from, to);
-
-            this.currentPlayer = (this.currentPlayer === 'white') ? 'black' : 'white';
-            this.updatePlayerTurn();
-
-            if (this.gameMode === 'bot' && this.currentPlayer === 'black') {
+            this.clearSelection();
+            if ((this.gameMode === 'bot' || this.gameMode === 'devbot') && this.currentPlayer === 'black') {
                 this.triggerBot();
             }
         }
@@ -330,7 +368,7 @@ class ChessUI {
 
     async commitPromotion(pieceType) {
     
-        if (this.gameMode === 'bot' && this.currentPlayer === 'black'){
+        if ((this.gameMode === 'bot' || this.gameMode === 'devbot') && this.currentPlayer === 'black'){
             var playerUsername = null
         }else{
             playerUsername = this.currentUsername
@@ -411,7 +449,7 @@ class ChessUI {
         if (!confirm("Are you sure you want to resign?")) return;
         try {
             await ChessEngineAPI.resignGame();
-            if (this.gameMode === 'bot') {
+            if (this.gameMode === 'bot' || this.gameMode === 'devbot') {
                 this.showGameOverModal("Game Over: Black wins! (White resigned)");
                 clearInterval(this.pollingInterval);
             }
@@ -477,7 +515,7 @@ class ChessUI {
             catch (e) { alert("Server Error"); }
         });
 
-        bind('menu-play-bot', () => window.location.href = 'game.html?mode=bot');
+        // bind('menu-play-bot', () => window.location.href = 'game.html?mode=bot');
         bind('logout-btn', () => this.logout());
     }
 
@@ -550,7 +588,7 @@ class ChessUI {
             const sq = document.querySelector(`.square[data-row="${r}"][data-col="${c}"]`); 
             if(sq) sq.classList.remove('selected'); 
         } 
-        this.selectedSquare = null; 
+        this.selectedSquare = null;
         this.legalMoves = []; 
         document.querySelectorAll('.square').forEach(el => el.classList.remove('legal-move', 'legal-capture')); 
     }

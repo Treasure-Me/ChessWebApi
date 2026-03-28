@@ -11,6 +11,7 @@ import static API.ChessServerAPI.logger;
 import API.utility.Player;
 import API.utility.PlayerDaoImplementation;
 import API.utility.WebSocketBroadcaster;
+import ChessAlgorithms.EngineCalculations;
 import io.javalin.http.Context;
 import io.javalin.websocket.WsContext;
 import logic.Board;
@@ -90,6 +91,7 @@ public class ChessApiHandler {
             chessMatchHandler game = GameManager.getGame(existingGameId);
             Board gameBoard = game.getBoard();
             if (gameBoard.getGameState().equals("ongoing")) {
+                WebSocketBroadcaster.broadcastGameUpdate(existingGameId, game.getGameState());
                 returnGameInfo(context, game, existingGameId);
                 return;
             } else {
@@ -97,6 +99,7 @@ public class ChessApiHandler {
             }
         }
 
+        boolean isDevBot = context.queryParam("devbot") != null && context.queryParam("devbot").equals("true");
         boolean isBot = context.queryParam("bot") != null && context.queryParam("bot").equals("true");
         boolean isAnalysis = context.queryParam("analysis") != null && context.queryParam("analysis").equals("true");
 
@@ -112,7 +115,19 @@ public class ChessApiHandler {
 
             returnGameInfo(context, newGame, gameId);
             return;
-        }else if (isAnalysis){
+        }else if (isDevBot){
+            Player devBot = new Player(UUID.randomUUID());
+            devBot.setUsername("DevBot");
+
+
+            String gameId = java.util.UUID.randomUUID().toString();
+
+            chessMatchHandler newGame = new chessMatchHandler(gameId, player, devBot);
+            GameManager.addGame(gameId, newGame);
+
+            returnGameInfo(context, newGame, gameId);
+            return;
+        } else if (isAnalysis){
             System.out.println("Analysis");
             String gameId = java.util.UUID.randomUUID().toString();
             NewGame newGameBody = context.bodyAsClass(NewGame.class);
@@ -124,9 +139,8 @@ public class ChessApiHandler {
                 Board board = new Board(fen);
                 newGame.setNewBoard(board);
             }
-            
-            GameManager.addGame(gameId, newGame);
 
+            GameManager.addGame(gameId, newGame);
             returnGameInfo(context, newGame, gameId);
             return;
         }
@@ -182,7 +196,7 @@ public class ChessApiHandler {
                 for (Map.Entry<Player, String> entry : game.players.entrySet()) {
                     Player p = entry.getKey();
                     if (p.getUsername().equals(sessionUser.getUsername())) humanInGame = p;
-                    if (p.getUsername().equals("Stockfish")) botInGame = p;
+                    if (p.getUsername().equals("Stockfish") || p.getUsername().equals("DevBot")) botInGame = p;
                 }
                 
                 if (req.playerUsername == null) {
@@ -206,7 +220,7 @@ public class ChessApiHandler {
                 try {
 
                     if (req.playerUsername == null){
-                        System.out.println("Attempt 1: Moving as bot (Stockfish)...");
+                        System.out.printf("Attempt 1: Moving as bot (%s)...", botInGame.getUsername());
                         result = game.processMove(botInGame, req.from, req.to, req.promotion);
                     }else{
                         System.out.println("Attempt 1: Moving as Human (" + req.playerUsername + ")...");
@@ -234,7 +248,11 @@ public class ChessApiHandler {
                 LegalRequest lReq = context.bodyAsClass(LegalRequest.class);
                 context.json(game.getLegalMoves(lReq.square, lReq.piece));
                 break;
-
+            case "best-move":
+//                int depth = context.bodyAsClass(Integer.class);
+                Board board = game.getBoard();
+                String move = EngineCalculations.iterativeDeepening(board, 5000);
+                context.json(Map.of("success", true, "move", move));
             case "resign":
                 Player resigner = null;
                 for (Player p : game.players.keySet()) {

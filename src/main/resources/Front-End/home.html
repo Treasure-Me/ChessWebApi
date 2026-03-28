@@ -60,7 +60,7 @@
             <h2 style="text-align: center; color: #ccc;">Main Menu</h2>
             <div class="move-controls" style="flex-direction: column; gap: 15px;">
                 <button id="menu-new-game" class="btn btn-primary" style="width: 100%;">New Game</button>
-                <button id="menu-play-bot" class="btn btn-primary" style="width: 100%;" onclick="window.location.href='game.html?mode=bot'">Play Bot</button>
+                <button id="menu-play-bot" class="btn btn-primary" style="width: 100%;" onclick="openBotModal()">Play Bot</button>
                 <button id="menu-analysis" class="btn btn-primary" style="width: 100%;" onclick="openAnalysisModal()">Analysis</button>
                 <button class="btn btn-secondary" style="width: 100%; opacity: 0.5;">Settings</button>
                 <button id="logout-btn" class="btn btn-primary" style="width: 100%;">Log Out</button>
@@ -80,6 +80,17 @@
                 <button id="cancel-analysis-btn" class="btn btn-secondary" onclick="closeAnalysisModal()">Cancel</button>
             </div>
             <p style="font-size: 0.8em; color: gray; margin-top: 5px;">(PGN support coming soon)</p>
+        </div>
+    </div>
+
+    <div id="bot-modal" class="modal">
+        <div class="modal-content">
+            <h2>Select Bot</h2>
+            <div class="modal-buttons">
+                <button id="Stockfish-btn" class="btn btn-primary" onclick="window.location.href='game.html?mode=bot'">Stockfish</button>
+                <button id="DevBot-btn" class="btn btn-primary" onclick="window.location.href='game.html?mode=devbot'">Dev Bot</button>
+                <div id="cancel-bot-game" class="btn btn-secondary" onclick="closeBotModal()">cancel</div>
+            </div>
         </div>
     </div>
 </div>
@@ -102,6 +113,15 @@
             sessionStorage.removeItem('analysis_fen'); // Default
         }
         window.location.href = 'game.html?mode=analysis';
+    }
+    function openBotModal(){
+        document.getElementById('bot-modal').style.display = 'block';
+    }
+    function closeBotModal(){
+        document.getElementById('bot-modal').style.display = 'none';
+    }
+    function startBotGame(bot){
+        window.location.href= `game.html?mode=${bot}`
     }
 </script>
 </body>

@@ -98,7 +98,9 @@ public class ChessGame {
             if (isCheckmate(board, nextTurn)) {
                 String winner = isWhiteTurn ? "White" : "Black";
                 board.setGameState("Checkmate! " + winner + " wins!");
-            } else {
+//            }else if (isStaleMate(board)){
+//                board.setGameState("Game Over: Stalemate.");
+            }else {
                 board.setGameState("ongoing");
             }
             return board;
@@ -156,6 +158,11 @@ public class ChessGame {
         }
         return false;
     }
+
+//    private static boolean isStaleMate(Board board){
+//        String turn = board.getFENStringPosition().split(" ")[1];
+//        return listOfLegalMoves(board, turn).isEmpty();
+//    }
 
     private static boolean isCheckmate(Board board, String turn) {
         boolean isWhite = turn.equals("w");
@@ -257,4 +264,28 @@ public class ChessGame {
         }
         return valid;
     }
+
+//    private static List<String> listOfLegalMoves(Board board, String player) {
+//        List<String> moves = new ArrayList<>();
+//        boolean isWhiteTurn = player.equals("w");
+//
+//        for (int r = 0; r < 8; r++) {
+//            for (int c = 0; c < 8; c++) {
+//                String piece = board.getCleanSquares()[r][c];
+//
+//                if (piece == null || piece.trim().isEmpty()) continue;
+//                boolean isWhitePiece = Character.isUpperCase(piece.charAt(0));
+//                if (isWhitePiece != isWhiteTurn) continue;
+//
+//                String fromSquare = String.format("%s%d","abcdefgh".charAt(c), r+1);
+//                System.out.println(fromSquare);
+//                List<String> rawMoves = ChessGame.generateAllPossibleMoves(board,fromSquare,piece);
+//
+//                for (String moveStr : rawMoves) {
+//                    moves.add(fromSquare+"-"+moveStr);
+//                }
+//            }
+//        }
+//        return moves;
+//    }
 }
