@@ -91,16 +91,6 @@ public class chessMatchHandler {
             System.out.println("Stuck state");
             return Map.of("success", false, "message", board.getGameState());
         }
-
-        // if (vsBot) {
-        //     String nextTurn = board.getFENStringPosition().split(" ")[1];
-        //     String botColor = players.get(botPlayer);
-
-        //     if (nextTurn.equals(botColor) && board.getGameState().equals("ongoing")) {
-        //         makeBotMove(from, to);
-        //     }
-        // }
-
         WebSocketBroadcaster.broadcastGameUpdate(gameId, getGameState());
         return Map.of(
                 "success", true,
@@ -108,19 +98,6 @@ public class chessMatchHandler {
                 "status", board.getGameState()
         );
     }
-
-    // private void makeBotMove(String from, String to) {
-
-    //     try {
-
-    //         board = ChessGame.playGame(board, from + "-" + to, null);
-
-    //     } catch (Exception e) {
-    //         System.out.println("Bot move failed: " + e.getMessage());
-    //     }
-    // }
-
-
 
     public ArrayList<String> getLegalMoves(String square, String piece) {
         return ChessGame.generateAllPossibleMoves(board, square, piece);
