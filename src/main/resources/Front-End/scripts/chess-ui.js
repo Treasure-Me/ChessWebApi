@@ -63,11 +63,11 @@ class ChessUI {
         if (storedFen) {
             let data = await ChessEngineAPI.newGame(false, true, false,  storedFen);
             if (!data){
-                data = await ChessEngineAPI.newGame(false, true, false,  defaultFen);
+                await ChessEngineAPI.newGame(false, true, false,  defaultFen);
                 alert("Invalid FEN string. Loaded default.");
             }
         }else{
-            const data = await ChessEngineAPI.newGame(false, true, false,  defaultFen);
+            await ChessEngineAPI.newGame(false, true, false,  defaultFen);
         }
 
         const state = await ChessEngineAPI.getGameState();
@@ -147,57 +147,57 @@ class ChessUI {
                 console.log("Resuming bot thinking...");
                 this.triggerBot();
             }
-            return;
+        }else{
+            const engineUrl = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.0/stockfish.js';
+            this.botEngine = new UCIEngine(engineUrl);
+
+            this.botEngine.worker.addEventListener('message', (e) => {
+                if (e.data === 'readyok') {
+                    console.log("Stockfish Ready");
+                    this.engineReady = true;
+                    this.engineLoading = false;
+                    this.updateStatus("Playing vs Stockfish");
+
+                    if (this.currentPlayer === 'black') {
+                        console.log("Resuming bot thinking...");
+                        this.triggerBot();
+                    }
+                }
+            });
+
+            this.botEngine.onBestMove = (moveString) => {
+                document.getElementById('loading-spinner').style.display = 'none';
+                const move = ChessUtils.parseMove(moveString);
+                const from = this.getSquareNotation(move.from.r, move.from.c);
+                const to = this.getSquareNotation(move.to.r, move.to.c);
+
+                let promotionChar = null;
+                if (moveString.length > 4) {
+                    promotionChar = moveString.charAt(4) + '';
+                }
+                this.makeMove(from, to, promotionChar, null);
+            };
         }
 
-        const engineUrl = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.0/stockfish.js';
-        this.botEngine = new UCIEngine(engineUrl);
 
-        this.botEngine.worker.addEventListener('message', (e) => {
-            if (e.data === 'readyok') {
-                console.log("Stockfish Ready");
-                this.engineReady = true;
-                this.engineLoading = false;
-                this.updateStatus("Playing vs Stockfish");
-
-                if (this.currentPlayer === 'black') {
-                    console.log("Resuming bot thinking...");
-                    this.triggerBot();
-                }
-            }
-        });
-
-        this.botEngine.onBestMove = (moveString) => {
-            document.getElementById('loading-spinner').style.display = 'none';
-            const move = ChessUtils.parseMove(moveString);
-            const from = this.getSquareNotation(move.from.r, move.from.c);
-            const to = this.getSquareNotation(move.to.r, move.to.c);
-
-            let promotionChar = null;
-            if (moveString.length > 4) {
-                console.log(moveString);
-                promotionChar = moveString.charAt(4) + '';
-                console.log(promotionChar);
-            }
-            console.log(from+":"+to);
-            this.makeMove(from, to, promotionChar, null);
-        };
     }
 
-    triggerBot() {
-        if (this.gameMode === 'devbot'){
+    async triggerBot() {
+        if (this.gameMode === 'devbot') {
             const spinner = document.getElementById('loading-spinner');
             if (spinner) spinner.style.display = 'block';
-            const data = ChessEngineAPI.getBestMove(4);
-            if (data){
-                const move = data.move;
+            const result = await ChessEngineAPI.getBestMove(4);
+            if (result.success) {
+                const move = result.bestMove;
                 const from = move.split("-")[0];
                 const to = move.split("-")[1];
-                this.makeMove(from, to, null, "DevBot");
+                await this.makeMove(from, to, null, null);
                 document.getElementById('loading-spinner').style.display = 'none';
                 return;
+            } else {
+                return;
             }
-        }else if (this.gameMode !== 'bot') return;
+        } else if (this.gameMode !== 'bot') return;
 
         if (!this.engineReady) {
             console.log("Engine not ready yet...");
@@ -361,7 +361,7 @@ class ChessUI {
             this.addToHistory(from, to);
             this.clearSelection();
             if ((this.gameMode === 'bot' || this.gameMode === 'devbot') && this.currentPlayer === 'black') {
-                this.triggerBot();
+                await this.triggerBot();
             }
         }
     }
@@ -401,8 +401,8 @@ class ChessUI {
         const text = document.getElementById('eval-text');
         if (!barFill || !text) return;
 
-        let percentage = 50;
-        let displayScore = "0.0";
+        let percentage;
+        let displayScore;
         const state = await ChessEngineAPI.getGameState();
 
         if (isMate) {
@@ -565,7 +565,7 @@ class ChessUI {
     }
     
     updatePieces() { 
-        const squares = document.getElementsByClassName('square'); 
+        const squares = document.getElementsByClassName('square');
         for (let sq of squares) { 
             const r = parseInt(sq.dataset.row); 
             const c = parseInt(sq.dataset.col);
