@@ -558,7 +558,7 @@ public class EngineCalculations {
                 if (piece == null || piece.isBlank()) continue;
                 if (Character.isUpperCase(piece.charAt(0)) != isWhiteTurn) continue;
 
-                String fromSquare = "" + "abcdefgh".charAt(c) + (r + 1);
+                String fromSquare = "" + "abcdefgh".charAt(c) + (7 - r + 1);
                 List<String> raw = ChessGame.generateAllPossibleMoves(board, fromSquare, piece);
                 for (String to : raw) moves.add(fromSquare + "-" + to);
             }
@@ -577,7 +577,7 @@ public class EngineCalculations {
                 if (piece == null || piece.isBlank()) continue;
                 if (Character.isUpperCase(piece.charAt(0)) != isWhiteTurn) continue;
 
-                String fromSquare = "" + "abcdefgh".charAt(c) + (r + 1);
+                String fromSquare = "" + "abcdefgh".charAt(c) + (7-r + 1);
                 List<String> raw = ChessGame.generateAllPossibleMoves(board, fromSquare, piece);
                 for (String to : raw) {
                     String target = board.getSquare(to);
