@@ -135,19 +135,18 @@ class ChessEngineAPI {
     }
 
     static async getBestMove(depth) {
-        if (!this.activeGameId) return null;
+        if (!this.activeGameId) return { success: false, message: "No active game" };
 
         try {
             const response = await fetch(`${this.baseURL}/api/game/${this.activeGameId}/best-move`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ depth: depth})
+                body: JSON.stringify({ depth: depth })
             });
-            if (!response.ok) return null;
             return await response.json();
         } catch (error) {
             console.error('API Error:', error);
-            return null;
+            return { success: false, message: "Connection Error" };
         }
     }
 
