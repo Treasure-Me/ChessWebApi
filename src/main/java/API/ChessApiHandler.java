@@ -21,6 +21,7 @@ public class ChessApiHandler {
     public static ArrayList<Player> playersLoggedIn = new ArrayList<>();
     private static ArrayList<Player> playersReadyForGame = new ArrayList<>();
     private static ArrayList<String> boardStates = new ArrayList<>();
+    private static ArrayList<String> bots = new ArrayList<>();
 
     public static void login(Context context) {
         try {
@@ -128,7 +129,6 @@ public class ChessApiHandler {
             returnGameInfo(context, newGame, gameId);
             return;
         } else if (isAnalysis){
-            System.out.println("Analysis");
             String gameId = java.util.UUID.randomUUID().toString();
             NewGame newGameBody = context.bodyAsClass(NewGame.class);
             String fen = newGameBody.fen;
@@ -220,10 +220,8 @@ public class ChessApiHandler {
                 try {
 
                     if (req.playerUsername == null){
-                        System.out.printf("Attempt 1: Moving as bot (%s)...", botInGame.getUsername());
                         result = game.processMove(botInGame, req.from, req.to, req.promotion);
                     }else{
-                        System.out.println("Attempt 1: Moving as Human (" + req.playerUsername + ")...");
                         result = game.processMove(humanInGame, req.from, req.to, req.promotion);
                     }
                     
@@ -232,13 +230,11 @@ public class ChessApiHandler {
                         Map<?, ?> rMap = (Map<?, ?>) result;
                         if (rMap.containsKey("success") && Boolean.TRUE.equals(rMap.get("success"))) {
                             success = true;
-                            System.out.println(" > Success!");
                             Map<String, Object> state = game.getGameState();
                             boardStates.add((String) state.get("fen"));
                         }
                     }
                 } catch (Exception e) {
-                    System.out.println(" > Attempt 1 Crashed: " + e.getMessage());
                 }
 
                 context.json(result != null ? result : Map.of("success", false));
@@ -251,8 +247,14 @@ public class ChessApiHandler {
             case "best-move":
 //                int depth = context.bodyAsClass(Integer.class);
                 Board board = game.getBoard();
-                String move = EngineCalculations.iterativeDeepening(board, 5000);
-                context.json(Map.of("success", true, "move", move));
+                String move = EngineCalculations.iterativeDeepening(board, 5000).strip();
+                if (move.isEmpty()){
+                    context.json(Map.of("success", false));
+                }else {
+                    context.json(Map.of("success", true,
+                                        "bestMove", move));
+                }
+                break;
             case "resign":
                 Player resigner = null;
                 for (Player p : game.players.keySet()) {
