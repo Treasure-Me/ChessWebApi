@@ -6,7 +6,11 @@ class UpdateInterface {
     static startWebSocket(activeGameId) {
         const dot = document.getElementById('sync-status');
         this.startContinuousFlash(dot);
-        this.socket = new WebSocket(`ws://localhost:5000/updates?gameId=${activeGameId}`);
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.host;
+        const wsUrl = `${protocol}//${host}/updates?gameId=${activeGameId}`;
+        this.socket = new WebSocket(wsUrl);
 
         this.socket.onopen = () => {
             console.log("WebSocket connected");
