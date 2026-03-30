@@ -247,7 +247,7 @@ public class ChessApiHandler {
             case "best-move":
 //                int depth = context.bodyAsClass(Integer.class);
                 Board board = game.getBoard();
-                String move = EngineCalculations.iterativeDeepening(board, 5000).strip();
+                String move = EngineCalculations.iterativeDeepening(board, 10000).strip();
                 if (move.isEmpty()){
                     context.json(Map.of("success", false));
                 }else {

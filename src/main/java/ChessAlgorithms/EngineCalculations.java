@@ -49,8 +49,8 @@ public class EngineCalculations {
 
     private static final int CHECKMATE_SCORE = 100000;
     private static final int STALEMATE_SCORE = 0;
-    private static final int MAX_DEPTH       = 6;
-    private static final int Q_DEPTH_LIMIT   = 4; // Max extra depth for quiescence
+    private static final int MAX_DEPTH       = 20;
+    private static final int Q_DEPTH_LIMIT   = 18; // Max extra depth for quiescence
 
     // =========================================================================
     // PIECE-SQUARE TABLES (White's perspective — flip row for Black)

@@ -29,7 +29,6 @@ public class ChessGame {
 
         if (piece.isEmpty() || piece.equals("x") || piece.equals("o")) return board;
 
-        // Turn Check
         String turn = board.getFENStringPosition().split(" ")[1];
         boolean isWhiteTurn = turn.equals("w");
         boolean isWhitePiece = Character.isUpperCase(piece.charAt(0));
@@ -38,7 +37,6 @@ public class ChessGame {
             return board;
         }
 
-        // Own Capture Check
         String target = board.getSquare(to);
         boolean targetOccupied = !target.equals("o") && !target.equals("x") && !target.isEmpty();
         if (targetOccupied) {
@@ -51,10 +49,8 @@ public class ChessGame {
 
         Moves moves = new Moves(piece, board);
         if (identifyPlayPiece(piece, moves, from, to)) {
-            // Check for Castling intent
             boolean isCastling = piece.equalsIgnoreCase("k") && Math.abs(from.charAt(0) - to.charAt(0)) == 2;
 
-            // Check for passing through check (Castling only)
             if (isCastling) {
                 String midSquare = getMiddleSquare(from, to);
                 if (inCheck(board, from, isWhiteTurn) || inCheck(board, midSquare, isWhiteTurn)) {
@@ -89,10 +85,14 @@ public class ChessGame {
                 board.setSquare(to, promo);
             }
 
-
+            String[] enPassantList = possibleEnPassant(from, to, piece,board);
             String finalPiece = board.getSquare(to);
-            updateFEN(board, finalPiece, from);
 
+            if (enPassantList != null){
+                updateFEN(board, finalPiece, from, enPassantList[0], enPassantList[1]);
+            }else{
+                updateFEN(board, finalPiece, from, null, null);
+            }
 
             String nextTurn = isWhiteTurn ? "b" : "w";
             if (isCheckmate(board, nextTurn)) {
@@ -108,6 +108,38 @@ public class ChessGame {
 
         board.setGameState("Invalid Move");
         return board;
+    }
+
+    private static String[] possibleEnPassant(String from, String to, String piece, Board board){
+        int rankFrom = board.processFileAndRank(from)[1];
+        int rankTo = board.processFileAndRank(to)[1];
+        int fileTo = board.processFileAndRank(to)[0];
+
+        if (piece.equalsIgnoreCase("p") && Math.abs(rankFrom-rankTo) == 2){
+            Character targetFileName1 = fileTo < 7 ? "abcdefgh".charAt(fileTo+1) : null;
+            Character targetFileName2 = fileTo > 0 ? "abcdefgh".charAt(fileTo-1) : null;
+            String targetSquare1 = "";
+            String targetSquare2 = "";
+
+            if (targetFileName1 != null){
+                targetSquare1 = String.valueOf(targetFileName1 + rankTo);
+            }else if (targetFileName2 != null){
+                targetSquare2 = String.valueOf(targetFileName2+rankTo);
+            }
+
+            String piece1 = board.getSquare(targetSquare1);
+            String piece2 = targetFileName2 != null ? board.getSquare(targetSquare2) : null;
+
+            if (piece1 != null && piece1.equalsIgnoreCase("p")){
+                String toSquare = String.valueOf(targetFileName1 + (rankTo+1));
+                return new String[]{targetSquare1, toSquare};
+            }else if (piece2 != null && piece2.equalsIgnoreCase("p")){
+                String toSquare = String.valueOf(targetFileName2 + (rankTo+1));
+                return new String[]{targetSquare2, toSquare};
+            }
+        }
+
+        return null;
     }
 
     private static String getMiddleSquare(String from, String to) {
@@ -204,7 +236,7 @@ public class ChessGame {
         return true;
     }
 
-    private static void updateFEN(Board board, String piece, String from) {
+    private static void updateFEN(Board board, String piece, String from, String targetSquare, String toSquare) {
         board.setFENStringPosition();
         String rawFen = board.getFENStringPosition();
         String[] parts = rawFen.split(" ");
@@ -221,6 +253,10 @@ public class ChessGame {
             if (from.equals("a8")) rights = rights.replace("q", "");
         }
         if (rights.isEmpty()) rights = "-";
+
+        if (targetSquare != null){
+            parts[3] = toSquare;
+        }
 
         String newFen = parts[0] + " " + parts[1] + " " + rights + " " + parts[3] + " " + parts[4] + " " + parts[5];
         board.setRawFEN(newFen);
