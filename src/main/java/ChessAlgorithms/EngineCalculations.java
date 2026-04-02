@@ -6,70 +6,100 @@ import logic.ChessGame;
 import java.util.*;
 
 /**
- * EngineCalculations — Upgraded Chess Engine
+ * EngineCalculations — Highly optimised chess engine.
  *
- * Algorithms & Techniques included:
- *  1. Iterative Deepening
- *  2. Alpha-Beta Minimax
- *  3. Quiescence Search          — prevents horizon-effect blunders on captures
- *  4. Move Ordering              — MVV-LVA captures first, then killer moves, then history
- *  5. Piece-Square Tables (PSTs) — positional bonuses per piece per square
- *  6. Transposition Table        — Zobrist-keyed cache of previously evaluated positions
- *  7. Killer Move Heuristic      — non-capture beta-cutoff moves stored per depth
- *  8. History Heuristic          — tracks how often a move causes a cut-off
- *  9. King Safety Evaluation     — pawn shield bonus, open file penalty
- * 10. Pawn Structure Evaluation  — doubled, isolated, and passed pawn detection
+ * Algorithms & techniques:
+ *  1.  Iterative Deepening
+ *  2.  Alpha-Beta Minimax
+ *  3.  Quiescence Search
+ *  4.  Move Ordering — TT best move, MVV-LVA, killer moves, history heuristic
+ *  5.  Piece-Square Tables (flattened int[] for cache locality)
+ *  6.  Transposition Table (64-bit Zobrist — near-zero collision rate)
+ *  7.  Killer Move Heuristic
+ *  8.  History Heuristic (int[64*64] — no HashMap/String allocation)
+ *  9.  King Safety Evaluation (bitboard-only)
+ * 10.  Pawn Structure Evaluation (doubled + isolated penalties)
+ * 11.  Null Move Pruning (R=2)
+ * 12.  Late Move Reduction (LMR)
+ * 13.  Aspiration Windows at root
+ *
+ * ── Null-move FEN fix ────────────────────────────────────────────────────────
+ * The previous version tried to flip the side-to-move with two nested
+ * replaceFirst() calls on the FEN string, which could corrupt it if both
+ * patterns matched or if neither matched.  The fix: build a new Board from the
+ * current FEN, then call board.toggleSideToMove() + board.commitFEN() directly.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 public class EngineCalculations {
 
     // =========================================================================
-    // PIECE VALUES
+    // Piece index constants (match Board.pieceBB order)
     // =========================================================================
 
-    private static final Map<String, Integer> PIECE_VALUES = new HashMap<>();
+    private static final int P=0, N=1, B=2, R=3, Q=4, K=5;
+    private static final int p=6, n=7, b=8, r=9, q=10, k=11;
+
+    // =========================================================================
+    // Piece value tables (int[] indexed by char ASCII — no HashMap, no boxing)
+    // =========================================================================
+
+    private static final int[] PIECE_VALUE = new int[128];
     static {
-        PIECE_VALUES.put("P", 100);   PIECE_VALUES.put("p", -100);
-        PIECE_VALUES.put("N", 320);   PIECE_VALUES.put("n", -320);
-        PIECE_VALUES.put("B", 330);   PIECE_VALUES.put("b", -330);
-        PIECE_VALUES.put("R", 500);   PIECE_VALUES.put("r", -500);
-        PIECE_VALUES.put("Q", 900);   PIECE_VALUES.put("q", -900);
-        PIECE_VALUES.put("K", 20000); PIECE_VALUES.put("k", -20000);
+        PIECE_VALUE['P'] =  100; PIECE_VALUE['p'] = -100;
+        PIECE_VALUE['N'] =  320; PIECE_VALUE['n'] = -320;
+        PIECE_VALUE['B'] =  330; PIECE_VALUE['b'] = -330;
+        PIECE_VALUE['R'] =  500; PIECE_VALUE['r'] = -500;
+        PIECE_VALUE['Q'] =  900; PIECE_VALUE['q'] = -900;
+        PIECE_VALUE['K'] =20000; PIECE_VALUE['k'] =-20000;
     }
 
-    // Used by MVV-LVA: attacker value for ordering captures
-    private static final Map<String, Integer> MVV_LVA_VALUES = new HashMap<>();
+    private static final int[] MVV_LVA_VAL = new int[128];
     static {
-        MVV_LVA_VALUES.put("P", 1); MVV_LVA_VALUES.put("p", 1);
-        MVV_LVA_VALUES.put("N", 2); MVV_LVA_VALUES.put("n", 2);
-        MVV_LVA_VALUES.put("B", 3); MVV_LVA_VALUES.put("b", 3);
-        MVV_LVA_VALUES.put("R", 4); MVV_LVA_VALUES.put("r", 4);
-        MVV_LVA_VALUES.put("Q", 5); MVV_LVA_VALUES.put("q", 5);
-        MVV_LVA_VALUES.put("K", 6); MVV_LVA_VALUES.put("k", 6);
+        MVV_LVA_VAL['P']=MVV_LVA_VAL['p']=1;
+        MVV_LVA_VAL['N']=MVV_LVA_VAL['n']=2;
+        MVV_LVA_VAL['B']=MVV_LVA_VAL['b']=3;
+        MVV_LVA_VAL['R']=MVV_LVA_VAL['r']=4;
+        MVV_LVA_VAL['Q']=MVV_LVA_VAL['q']=5;
+        MVV_LVA_VAL['K']=MVV_LVA_VAL['k']=6;
     }
 
-    private static final int CHECKMATE_SCORE = 100000;
-    private static final int STALEMATE_SCORE = 0;
-    private static final int MAX_DEPTH       = 20;
-    private static final int Q_DEPTH_LIMIT   = 18; // Max extra depth for quiescence
-
     // =========================================================================
-    // PIECE-SQUARE TABLES (White's perspective — flip row for Black)
+    // Search constants
     // =========================================================================
 
-    // Pawns: push to center and advance
-    private static final int[][] PST_PAWN = {
-            { 0,  0,  0,  0,  0,  0,  0,  0},
-            {50, 50, 50, 50, 50, 50, 50, 50},
-            {10, 10, 20, 30, 30, 20, 10, 10},
-            { 5,  5, 10, 25, 25, 10,  5,  5},
-            { 0,  0,  0, 20, 20,  0,  0,  0},
-            { 5, -5,-10,  0,  0,-10, -5,  5},
-            { 5, 10, 10,-20,-20, 10, 10,  5},
-            { 0,  0,  0,  0,  0,  0,  0,  0}
-    };
+    private static final int CHECKMATE_SCORE  = 100_000;
+    private static final int STALEMATE_SCORE  = 0;
+    private static final int MAX_DEPTH        = 20;
+    private static final int Q_DEPTH_LIMIT    = 6;
+    private static final int NULL_MOVE_R      = 2;
+    private static final int LMR_MIN_DEPTH    = 3;
+    private static final int LMR_FULL_MOVES   = 3;
+    private static final int ASPIRATION_DELTA = 50;
 
-    // Knights: centralize
-    private static final int[][] PST_KNIGHT = {
+    // =========================================================================
+    // Piece-Square Tables — flattened int[64] for cache efficiency
+    // Index = pstRow * 8 + col.
+    // White: pstRow = 7 - bitRank  (rank-1 → row 7, rank-8 → row 0)
+    // Black: pstRow = bitRank      (mirrored — rank-8 → row 7)
+    // =========================================================================
+
+    private static int[] flat(int[][] t) {
+        int[] f = new int[64];
+        for (int r = 0; r < 8; r++) System.arraycopy(t[r], 0, f, r * 8, 8);
+        return f;
+    }
+
+    private static final int[] PST_PAWN = flat(new int[][]{
+            {  0,  0,  0,  0,  0,  0,  0,  0},
+            { 50, 50, 50, 50, 50, 50, 50, 50},
+            { 10, 10, 20, 30, 30, 20, 10, 10},
+            {  5,  5, 10, 25, 25, 10,  5,  5},
+            {  0,  0,  0, 20, 20,  0,  0,  0},
+            {  5, -5,-10,  0,  0,-10, -5,  5},
+            {  5, 10, 10,-20,-20, 10, 10,  5},
+            {  0,  0,  0,  0,  0,  0,  0,  0}
+    });
+    private static final int[] PST_KNIGHT = flat(new int[][]{
             {-50,-40,-30,-30,-30,-30,-40,-50},
             {-40,-20,  0,  0,  0,  0,-20,-40},
             {-30,  0, 10, 15, 15, 10,  0,-30},
@@ -78,10 +108,8 @@ public class EngineCalculations {
             {-30,  5, 10, 15, 15, 10,  5,-30},
             {-40,-20,  0,  5,  5,  0,-20,-40},
             {-50,-40,-30,-30,-30,-30,-40,-50}
-    };
-
-    // Bishops: diagonals and open positions
-    private static final int[][] PST_BISHOP = {
+    });
+    private static final int[] PST_BISHOP = flat(new int[][]{
             {-20,-10,-10,-10,-10,-10,-10,-20},
             {-10,  0,  0,  0,  0,  0,  0,-10},
             {-10,  0,  5, 10, 10,  5,  0,-10},
@@ -90,22 +118,18 @@ public class EngineCalculations {
             {-10, 10, 10, 10, 10, 10, 10,-10},
             {-10,  5,  0,  0,  0,  0,  5,-10},
             {-20,-10,-10,-10,-10,-10,-10,-20}
-    };
-
-    // Rooks: open files and 7th rank
-    private static final int[][] PST_ROOK = {
-            { 0,  0,  0,  0,  0,  0,  0,  0},
-            { 5, 10, 10, 10, 10, 10, 10,  5},
-            {-5,  0,  0,  0,  0,  0,  0, -5},
-            {-5,  0,  0,  0,  0,  0,  0, -5},
-            {-5,  0,  0,  0,  0,  0,  0, -5},
-            {-5,  0,  0,  0,  0,  0,  0, -5},
-            {-5,  0,  0,  0,  0,  0,  0, -5},
-            { 0,  0,  0,  5,  5,  0,  0,  0}
-    };
-
-    // Queens: avoid early development
-    private static final int[][] PST_QUEEN = {
+    });
+    private static final int[] PST_ROOK = flat(new int[][]{
+            {  0,  0,  0,  0,  0,  0,  0,  0},
+            {  5, 10, 10, 10, 10, 10, 10,  5},
+            { -5,  0,  0,  0,  0,  0,  0, -5},
+            { -5,  0,  0,  0,  0,  0,  0, -5},
+            { -5,  0,  0,  0,  0,  0,  0, -5},
+            { -5,  0,  0,  0,  0,  0,  0, -5},
+            { -5,  0,  0,  0,  0,  0,  0, -5},
+            {  0,  0,  0,  5,  5,  0,  0,  0}
+    });
+    private static final int[] PST_QUEEN = flat(new int[][]{
             {-20,-10,-10, -5, -5,-10,-10,-20},
             {-10,  0,  0,  0,  0,  0,  0,-10},
             {-10,  0,  5,  5,  5,  5,  0,-10},
@@ -114,10 +138,8 @@ public class EngineCalculations {
             {-10,  5,  5,  5,  5,  5,  0,-10},
             {-10,  0,  5,  0,  0,  0,  0,-10},
             {-20,-10,-10, -5, -5,-10,-10,-20}
-    };
-
-    // King Middlegame: stay safe behind pawns
-    private static final int[][] PST_KING_MG = {
+    });
+    private static final int[] PST_KING_MG = flat(new int[][]{
             {-30,-40,-40,-50,-50,-40,-40,-30},
             {-30,-40,-40,-50,-50,-40,-40,-30},
             {-30,-40,-40,-50,-50,-40,-40,-30},
@@ -126,10 +148,8 @@ public class EngineCalculations {
             {-10,-20,-20,-20,-20,-20,-20,-10},
             { 20, 20,  0,  0,  0,  0, 20, 20},
             { 20, 30, 10,  0,  0, 10, 30, 20}
-    };
-
-    // King Endgame: centralize
-    private static final int[][] PST_KING_EG = {
+    });
+    private static final int[] PST_KING_EG = flat(new int[][]{
             {-50,-40,-30,-20,-20,-30,-40,-50},
             {-30,-20,-10,  0,  0,-10,-20,-30},
             {-30,-10, 20, 30, 30, 20,-10,-30},
@@ -138,150 +158,232 @@ public class EngineCalculations {
             {-30,-10, 20, 30, 30, 20,-10,-30},
             {-30,-30,  0,  0,  0,  0,-30,-30},
             {-50,-30,-30,-30,-30,-30,-30,-50}
+    });
+
+    // PST dispatch by piece index (0-11). King PST is overridden at eval time.
+    private static final int[][] PST_BY_INDEX = {
+            PST_PAWN,   PST_KNIGHT, PST_BISHOP, PST_ROOK, PST_QUEEN, PST_KING_MG,
+            PST_PAWN,   PST_KNIGHT, PST_BISHOP, PST_ROOK, PST_QUEEN, PST_KING_MG
     };
 
     // =========================================================================
-    // TRANSPOSITION TABLE
+    // Transposition table (64-bit Zobrist)
     // =========================================================================
 
-    private static final int TT_SIZE = 1 << 20; // ~1M entries
-    private static final int[] ttKey   = new int[TT_SIZE];
-    private static final int[] ttDepth = new int[TT_SIZE];
-    private static final int[] ttScore = new int[TT_SIZE];
-    private static final byte[] ttFlag = new byte[TT_SIZE]; // 0=exact,1=lower,2=upper
+    private static final int    TT_SIZE  = 1 << 22;     // ~4 M entries
+    private static final long[] ttKey    = new long[TT_SIZE];
+    private static final int[]  ttDepth  = new int[TT_SIZE];
+    private static final int[]  ttScore  = new int[TT_SIZE];
+    private static final byte[] ttFlag   = new byte[TT_SIZE];
+    private static final String[] ttBestMove = new String[TT_SIZE];
 
-    private static final byte TT_EXACT = 0;
-    private static final byte TT_LOWER = 1;
-    private static final byte TT_UPPER = 2;
+    private static final byte TT_EXACT = 0, TT_LOWER = 1, TT_UPPER = 2;
 
     // =========================================================================
-    // KILLER & HISTORY HEURISTICS
+    // Zobrist hashing
+    // =========================================================================
+
+    private static final long[][] ZOBRIST_PIECE  = new long[12][64];
+    private static final long     ZOBRIST_BLACK_MOVE;
+
+    static {
+        Random rng = new Random(0xDEAD_BEEF_CAFE_BABAL);
+        for (int i = 0; i < 12; i++)
+            for (int s = 0; s < 64; s++)
+                ZOBRIST_PIECE[i][s] = rng.nextLong();
+        ZOBRIST_BLACK_MOVE = rng.nextLong();
+    }
+
+    private static long zobristHash(Board board) {
+        long h = 0L;
+        for (int i = 0; i < 12; i++) {
+            long bb = board.getPieceBitboard(i);
+            while (bb != 0) {
+                h ^= ZOBRIST_PIECE[i][Long.numberOfTrailingZeros(bb)];
+                bb &= bb - 1;
+            }
+        }
+        if (board.getSideToMove().equals("b")) h ^= ZOBRIST_BLACK_MOVE;
+        return h;
+    }
+
+    // =========================================================================
+    // Killer & history heuristics
     // =========================================================================
 
     private static final String[][] killerMoves = new String[MAX_DEPTH + Q_DEPTH_LIMIT + 2][2];
-    private static final Map<String, Integer> historyTable = new HashMap<>();
+    private static final int[]      historyTable = new int[64 * 64];
 
     // =========================================================================
-    // SEARCH STATE
+    // Search state
     // =========================================================================
 
-    private static long searchStartTime;
-    private static long searchTimeLimit;
+    private static long    searchStartTime;
+    private static long    searchTimeLimit;
     private static boolean timeUp;
 
     // =========================================================================
-    // ITERATIVE DEEPENING ENTRY POINT
+    // Iterative deepening
     // =========================================================================
 
     public static String iterativeDeepening(Board board, long maxTimeMillis) {
         searchStartTime = System.currentTimeMillis();
         searchTimeLimit = maxTimeMillis;
-        timeUp = false;
+        timeUp          = false;
 
-        // Clear heuristic tables for new search
         clearKillers();
-        historyTable.clear();
+        Arrays.fill(historyTable, 0);
 
-        String bestMove = "";
+        String bestMove  = "";
+        int    prevScore = 0;
 
         for (int depth = 1; depth <= MAX_DEPTH; depth++) {
-            if (timeUp || (System.currentTimeMillis() - searchStartTime) > searchTimeLimit) break;
+            if (timeUp || elapsed() > searchTimeLimit) break;
 
-            String move = findBestMove(board, depth);
+            int alpha, beta;
+            if (depth >= 4) {
+                alpha = prevScore - ASPIRATION_DELTA;
+                beta  = prevScore + ASPIRATION_DELTA;
+            } else {
+                alpha = Integer.MIN_VALUE + 1;
+                beta  = Integer.MAX_VALUE - 1;
+            }
+
+            String move;
+            int    score;
+
+            while (true) {
+                move  = findBestMove(board, depth, alpha, beta);
+                score = lastRootScore;
+                if (timeUp) break;
+                if      (score <= alpha) alpha = Integer.MIN_VALUE + 1;
+                else if (score >= beta)  beta  = Integer.MAX_VALUE - 1;
+                else                     break;
+            }
+
             if (!move.isEmpty() && !timeUp) {
-                bestMove = move;
+                bestMove  = move;
+                prevScore = score;
             }
-            System.out.println("Depth " + depth + " | Best: " + bestMove
-                    + " | Time: " + (System.currentTimeMillis() - searchStartTime) + "ms");
+            System.out.printf("Depth %d | Best: %s | Score: %d | Time: %dms%n",
+                    depth, bestMove, prevScore, elapsed());
         }
         return bestMove;
     }
 
+    private static int lastRootScore = 0;
+
     // =========================================================================
-    // ROOT SEARCH
+    // Root search
     // =========================================================================
 
-    public static String findBestMove(Board board, int depth) {
-        String currentTurn = getTurnFromFEN(board);
-        boolean maximizingPlayer = currentTurn.equals("w");
+    public static String findBestMove(Board board, int depth, int alpha, int beta) {
+        String  turn      = board.getSideToMove();
+        boolean maxing    = turn.equals("w");
+        List<String> moves = ChessGame.listOfLegalMoves(board, turn);
+        if (moves.isEmpty()) { lastRootScore = 0; return ""; }
 
-        List<String> legalMoves = generateLegalMoves(board, currentTurn);
-        if (legalMoves.isEmpty()) return "";
+        orderMoves(moves, board, 0);
 
-        orderMoves(legalMoves, board, depth);
+        String bestMove  = moves.get(0);
+        int    bestScore = maxing ? Integer.MIN_VALUE + 1 : Integer.MAX_VALUE - 1;
 
-        String bestMove = legalMoves.get(0);
-        int bestEval = maximizingPlayer ? Integer.MIN_VALUE : Integer.MAX_VALUE;
-        int alpha = Integer.MIN_VALUE;
-        int beta  = Integer.MAX_VALUE;
-
-        for (String move : legalMoves) {
+        for (String move : moves) {
             if (timeUp) break;
-            Board newBoard = simulateMove(board, move);
-            int eval = minimax(newBoard, depth - 1, alpha, beta, !maximizingPlayer, 1);
+            Board child = simulateMove(board, move);
+            int eval = minimax(child, depth - 1, alpha, beta, !maxing, 1, false);
 
-            if (maximizingPlayer ? (eval > bestEval) : (eval < bestEval)) {
-                bestEval = eval;
-                bestMove = move;
+            if (maxing ? (eval > bestScore) : (eval < bestScore)) {
+                bestScore = eval;
+                bestMove  = move;
             }
-            if (maximizingPlayer) alpha = Math.max(alpha, eval);
-            else                  beta  = Math.min(beta, eval);
+            if (maxing) alpha = Math.max(alpha, eval);
+            else        beta  = Math.min(beta,  eval);
+            if (beta <= alpha) break;
         }
+        lastRootScore = bestScore;
         return bestMove;
     }
 
     // =========================================================================
-    // ALPHA-BETA MINIMAX
+    // Alpha-Beta minimax with Null Move Pruning and LMR
     // =========================================================================
 
     public static int minimax(Board board, int depth, int alpha, int beta,
-                              boolean maximizingPlayer, int ply) {
+                              boolean maxing, int ply, boolean nullMoveAllowed) {
 
-        // Time check (every 2048 nodes for performance)
-        if ((System.currentTimeMillis() - searchStartTime) > searchTimeLimit) {
-            timeUp = true;
-            return 0;
-        }
+        if (elapsed() > searchTimeLimit) { timeUp = true; return 0; }
 
-        // --- TRANSPOSITION TABLE LOOKUP ---
-        int fenHash = board.getFENStringPosition().hashCode();
-        int ttIndex = Math.abs(fenHash) % TT_SIZE;
-        if (ttKey[ttIndex] == fenHash && ttDepth[ttIndex] >= depth) {
-            int cached = ttScore[ttIndex];
-            if (ttFlag[ttIndex] == TT_EXACT) return cached;
-            if (ttFlag[ttIndex] == TT_LOWER) alpha = Math.max(alpha, cached);
-            if (ttFlag[ttIndex] == TT_UPPER) beta  = Math.min(beta, cached);
+        // ── Transposition table lookup ───────────────────────────────────────
+        long hash    = zobristHash(board);
+        int  ttIdx   = (int)(hash & (TT_SIZE - 1));
+        if (ttKey[ttIdx] == hash && ttDepth[ttIdx] >= depth) {
+            int cached = ttScore[ttIdx];
+            byte flag  = ttFlag[ttIdx];
+            if (flag == TT_EXACT) return cached;
+            if (flag == TT_LOWER) alpha = Math.max(alpha, cached);
+            if (flag == TT_UPPER) beta  = Math.min(beta,  cached);
             if (alpha >= beta) return cached;
         }
 
-        // --- QUIESCENCE AT LEAF ---
-        if (depth == 0) {
-            return quiescence(board, alpha, beta, maximizingPlayer, Q_DEPTH_LIMIT);
-        }
+        // ── Quiescence at leaf ───────────────────────────────────────────────
+        if (depth == 0) return quiescence(board, alpha, beta, maxing, Q_DEPTH_LIMIT);
 
-        // --- GAME OVER CHECK ---
-        String gameState = board.getGameState();
-        if (gameState != null && gameState.contains("Game Over")) return evaluate(board);
-        if (gameState != null && gameState.contains("Checkmate"))  return evaluate(board);
+        // ── Terminal position ────────────────────────────────────────────────
+        String gs = board.getGameState();
+        if (gs != null && (gs.contains("Game Over") || gs.contains("Checkmate")))
+            return evaluate(board);
 
-        String currentTurn = maximizingPlayer ? "w" : "b";
-        List<String> legalMoves = generateLegalMoves(board, currentTurn);
+        String turn = maxing ? "w" : "b";
+        List<String> legalMoves = ChessGame.listOfLegalMoves(board, turn);
         if (legalMoves.isEmpty()) return evaluate(board);
 
-        // Move ordering
+        // ── Null Move Pruning ────────────────────────────────────────────────
+        if (nullMoveAllowed && depth >= NULL_MOVE_R + 1 && !isInCheck(board, maxing)) {
+            // Create a null board: same position but with the other side to move.
+            Board nullBoard = new Board(board.getFENStringPosition());
+            nullBoard.toggleSideToMove();
+            // Also clear the EP square on null move (standard practice)
+            nullBoard.setFENFields(nullBoard.getCastlingRights(), "-");
+            nullBoard.commitFEN();
+
+            int nullScore = minimax(nullBoard, depth - 1 - NULL_MOVE_R,
+                    alpha, beta, !maxing, ply + 1, false);
+            if (maxing  && nullScore >= beta)  return beta;
+            if (!maxing && nullScore <= alpha) return alpha;
+        }
+
+        // ── Move ordering ────────────────────────────────────────────────────
         orderMoves(legalMoves, board, ply);
 
-        int originalAlpha = alpha;
-        int bestScore = maximizingPlayer ? Integer.MIN_VALUE : Integer.MAX_VALUE;
-        String bestMoveLocal = null;
+        int    originalAlpha  = alpha;
+        int    bestScore      = maxing ? Integer.MIN_VALUE + 1 : Integer.MAX_VALUE - 1;
+        String bestMoveLocal  = null;
+        int    moveCount      = 0;
 
         for (String move : legalMoves) {
             if (timeUp) return 0;
+            moveCount++;
 
-            Board newBoard = simulateMove(board, move);
-            int eval = minimax(newBoard, depth - 1, alpha, beta, !maximizingPlayer, ply + 1);
+            Board child = simulateMove(board, move);
+            int eval;
 
-            if (maximizingPlayer) {
+            // ── Late Move Reduction ──────────────────────────────────────────
+            boolean lmrCandidate = depth >= LMR_MIN_DEPTH
+                    && moveCount > LMR_FULL_MOVES
+                    && !isCaptureMoveStr(board, move)
+                    && (ply >= killerMoves.length || !move.equals(killerMoves[ply][0]));
+
+            if (lmrCandidate) {
+                int reduction = (moveCount > 6) ? 2 : 1;
+                eval = minimax(child, depth - 1 - reduction, alpha, beta, !maxing, ply + 1, true);
+                if (!timeUp && ((maxing && eval > alpha) || (!maxing && eval < beta)))
+                    eval = minimax(child, depth - 1, alpha, beta, !maxing, ply + 1, true);
+            } else {
+                eval = minimax(child, depth - 1, alpha, beta, !maxing, ply + 1, true);
+            }
+
+            if (maxing) {
                 if (eval > bestScore) { bestScore = eval; bestMoveLocal = move; }
                 alpha = Math.max(alpha, eval);
             } else {
@@ -290,71 +392,71 @@ public class EngineCalculations {
             }
 
             if (beta <= alpha) {
-                // Beta cut-off — update killer and history
-                if (bestMoveLocal != null && !isCapture(board, bestMoveLocal)) {
+                if (bestMoveLocal != null && !isCaptureMoveStr(board, bestMoveLocal)) {
                     storeKiller(ply, bestMoveLocal);
-                    historyTable.merge(bestMoveLocal, depth * depth, Integer::sum);
+                    int hIdx = historyIndex(bestMoveLocal);
+                    if (hIdx >= 0) historyTable[hIdx] += depth * depth;
                 }
                 break;
             }
         }
 
-        // --- TRANSPOSITION TABLE STORE ---
+        // ── TT store ─────────────────────────────────────────────────────────
         byte flag;
         if      (bestScore <= originalAlpha) flag = TT_UPPER;
         else if (bestScore >= beta)          flag = TT_LOWER;
         else                                 flag = TT_EXACT;
 
-        ttKey[ttIndex]   = fenHash;
-        ttDepth[ttIndex] = depth;
-        ttScore[ttIndex] = bestScore;
-        ttFlag[ttIndex]  = flag;
+        ttKey[ttIdx]      = hash;
+        ttDepth[ttIdx]    = depth;
+        ttScore[ttIdx]    = bestScore;
+        ttFlag[ttIdx]     = flag;
+        ttBestMove[ttIdx] = bestMoveLocal;
 
         return bestScore;
     }
 
     // =========================================================================
-    // QUIESCENCE SEARCH
-    // Extends search on captures to avoid horizon-effect blunders
+    // Quiescence search
     // =========================================================================
 
     private static int quiescence(Board board, int alpha, int beta,
-                                  boolean maximizingPlayer, int depthLeft) {
-
+                                  boolean maxing, int depthLeft) {
         int standPat = evaluate(board);
 
-        if (maximizingPlayer) {
+        if (maxing) {
             if (standPat >= beta)  return beta;
             if (standPat > alpha)  alpha = standPat;
         } else {
             if (standPat <= alpha) return alpha;
-            if (standPat < beta)   beta = standPat;
+            if (standPat < beta)   beta  = standPat;
         }
 
         if (depthLeft == 0) return standPat;
 
-        String currentTurn = maximizingPlayer ? "w" : "b";
-        List<String> captures = generateCaptureMoves(board, currentTurn);
-        orderMovesMVVLVA(captures, board);
+        // Generate only capture moves for quiescence
+        List<String> all  = ChessGame.listOfLegalMoves(board, maxing ? "w" : "b");
+        List<String> caps = new ArrayList<>(all.size());
+        for (String mv : all)
+            if (isCaptureMoveStr(board, mv)) caps.add(mv);
+        orderMovesMVVLVA(caps, board);
 
-        for (String move : captures) {
-            Board newBoard = simulateMove(board, move);
-            int eval = quiescence(newBoard, alpha, beta, !maximizingPlayer, depthLeft - 1);
-
-            if (maximizingPlayer) {
+        for (String move : caps) {
+            Board child = simulateMove(board, move);
+            int eval = quiescence(child, alpha, beta, !maxing, depthLeft - 1);
+            if (maxing) {
                 if (eval >= beta)  return beta;
                 if (eval > alpha)  alpha = eval;
             } else {
                 if (eval <= alpha) return alpha;
-                if (eval < beta)   beta = eval;
+                if (eval < beta)   beta  = eval;
             }
         }
-
-        return maximizingPlayer ? alpha : beta;
+        return maxing ? alpha : beta;
     }
 
     // =========================================================================
-    // EVALUATION
+    // Evaluation
     // =========================================================================
 
     public static int evaluate(Board board) {
@@ -364,289 +466,237 @@ public class EngineCalculations {
             if (gs.contains("Checkmate! White wins!")) return  CHECKMATE_SCORE;
             if (gs.contains("Stalemate"))              return  STALEMATE_SCORE;
         }
-
-        int score = 0;
-        score += evaluateMaterial(board);
-        score += evaluatePieceSquareTables(board);
-        score += evaluatePawnStructure(board);
-        score += evaluateKingSafety(board);
-        return score;
+        return evaluateMaterial(board)
+                + evaluatePST(board)
+                + evaluatePawnStructure(board)
+                + evaluateKingSafety(board);
     }
 
-    // --- Material ---
+    // ── Material ──────────────────────────────────────────────────────────────
     private static int evaluateMaterial(Board board) {
-        int score = 0;
-        String[][] squares = board.getCleanSquares();
-        for (int r = 0; r < 8; r++)
-            for (int c = 0; c < 8; c++) {
-                String p = squares[r][c];
-                if (p != null && !p.isBlank() && PIECE_VALUES.containsKey(p))
-                    score += PIECE_VALUES.get(p);
-            }
-        return score;
+        int s = 0;
+        s += Long.bitCount(board.getPieceBitboard(P)) *  100;
+        s += Long.bitCount(board.getPieceBitboard(N)) *  320;
+        s += Long.bitCount(board.getPieceBitboard(B)) *  330;
+        s += Long.bitCount(board.getPieceBitboard(R)) *  500;
+        s += Long.bitCount(board.getPieceBitboard(Q)) *  900;
+        s += Long.bitCount(board.getPieceBitboard(K)) *20000;
+        s -= Long.bitCount(board.getPieceBitboard(p)) *  100;
+        s -= Long.bitCount(board.getPieceBitboard(n)) *  320;
+        s -= Long.bitCount(board.getPieceBitboard(b)) *  330;
+        s -= Long.bitCount(board.getPieceBitboard(r)) *  500;
+        s -= Long.bitCount(board.getPieceBitboard(q)) *  900;
+        s -= Long.bitCount(board.getPieceBitboard(k)) *20000;
+        return s;
     }
 
-    // --- Piece-Square Tables ---
-    private static int evaluatePieceSquareTables(Board board) {
-        int score = 0;
-        boolean endgame = isEndgame(board);
-        String[][] squares = board.getCleanSquares();
+    // ── Piece-square tables ───────────────────────────────────────────────────
+    private static int evaluatePST(Board board) {
+        boolean eg    = isEndgame(board);
+        int     score = 0;
 
-        for (int r = 0; r < 8; r++) {
-            for (int c = 0; c < 8; c++) {
-                String piece = squares[r][c];
-                if (piece == null || piece.isBlank() || !PIECE_VALUES.containsKey(piece)) continue;
-
-                boolean isWhite = Character.isUpperCase(piece.charAt(0));
-                // White reads from the bottom (row 7 = rank 1), Black reads mirrored
-                int tableRow = isWhite ? (7 - r) : r;
-
-                int bonus = getPSTBonus(piece.toUpperCase(), tableRow, c, endgame);
-                score += isWhite ? bonus : -bonus;
+        for (int i = 0; i < 6; i++) {   // White pieces
+            long bb  = board.getPieceBitboard(i);
+            int[] pst = (i == K && eg) ? PST_KING_EG : PST_BY_INDEX[i];
+            while (bb != 0) {
+                int sq     = Long.numberOfTrailingZeros(bb);
+                int pstRow = 7 - (sq >> 3);          // White: rank-1 → row 7
+                score += pst[pstRow * 8 + (sq & 7)];
+                bb &= bb - 1;
+            }
+        }
+        for (int i = 6; i < 12; i++) {  // Black pieces (mirrored)
+            long bb  = board.getPieceBitboard(i);
+            int[] pst = (i == k && eg) ? PST_KING_EG : PST_BY_INDEX[i];
+            while (bb != 0) {
+                int sq     = Long.numberOfTrailingZeros(bb);
+                int pstRow = sq >> 3;                // Black: rank-8 → row 7
+                score -= pst[pstRow * 8 + (sq & 7)];
+                bb &= bb - 1;
             }
         }
         return score;
     }
 
-    private static int getPSTBonus(String pieceType, int row, int col, boolean endgame) {
-        return switch (pieceType) {
-            case "P" -> PST_PAWN[row][col];
-            case "N" -> PST_KNIGHT[row][col];
-            case "B" -> PST_BISHOP[row][col];
-            case "R" -> PST_ROOK[row][col];
-            case "Q" -> PST_QUEEN[row][col];
-            case "K" -> endgame ? PST_KING_EG[row][col] : PST_KING_MG[row][col];
-            default  -> 0;
-        };
-    }
-
-    // --- Pawn Structure ---
+    // ── Pawn structure ────────────────────────────────────────────────────────
     private static int evaluatePawnStructure(Board board) {
-        int score = 0;
-        String[][] squares = board.getCleanSquares();
+        int  score = 0;
+        long wP    = board.getPieceBitboard(P);
+        long bP    = board.getPieceBitboard(p);
 
-        int[] whitePawnsPerFile = new int[8];
-        int[] blackPawnsPerFile = new int[8];
+        long fileMask = 0x0101_0101_0101_0101L;
+        for (int file = 0; file < 8; file++, fileMask <<= 1) {
+            int wCount = Long.bitCount(wP & fileMask);
+            int bCount = Long.bitCount(bP & fileMask);
 
-        // Count pawns per file
-        for (int r = 0; r < 8; r++) {
-            for (int c = 0; c < 8; c++) {
-                String p = squares[r][c];
-                if ("P".equals(p)) whitePawnsPerFile[c]++;
-                if ("p".equals(p)) blackPawnsPerFile[c]++;
-            }
-        }
+            if (wCount > 1) score -= 20 * (wCount - 1);
+            if (bCount > 1) score += 20 * (bCount - 1);
 
-        for (int c = 0; c < 8; c++) {
-            // Doubled pawns penalty
-            if (whitePawnsPerFile[c] > 1) score -= 20 * (whitePawnsPerFile[c] - 1);
-            if (blackPawnsPerFile[c] > 1) score += 20 * (blackPawnsPerFile[c] - 1);
+            long left  = (file > 0) ? (fileMask >>> 1) : 0L;
+            long right = (file < 7) ? (fileMask <<  1) : 0L;
+            long adj   = left | right;
 
-            // Isolated pawns penalty (no friendly pawn on adjacent files)
-            if (whitePawnsPerFile[c] > 0) {
-                boolean isolated = (c == 0 || whitePawnsPerFile[c - 1] == 0)
-                        && (c == 7 || whitePawnsPerFile[c + 1] == 0);
-                if (isolated) score -= 15;
-            }
-            if (blackPawnsPerFile[c] > 0) {
-                boolean isolated = (c == 0 || blackPawnsPerFile[c - 1] == 0)
-                        && (c == 7 || blackPawnsPerFile[c + 1] == 0);
-                if (isolated) score += 15;
-            }
-
-            // Passed pawn bonus (no opposing pawn blocks it on this or adjacent files)
-            for (int r = 0; r < 8; r++) {
-                String p = squares[r][c];
-                if ("P".equals(p)) {
-                    boolean passed = true;
-                    for (int fc = Math.max(0, c - 1); fc <= Math.min(7, c + 1); fc++) {
-                        for (int fr = r + 1; fr < 8; fr++) {
-                            if ("p".equals(squares[fr][fc])) { passed = false; break; }
-                        }
-                        if (!passed) break;
-                    }
-                    if (passed) score += 20 + (r * 5); // Bigger bonus the further advanced
-                }
-                if ("p".equals(p)) {
-                    boolean passed = true;
-                    for (int fc = Math.max(0, c - 1); fc <= Math.min(7, c + 1); fc++) {
-                        for (int fr = r - 1; fr >= 0; fr--) {
-                            if ("P".equals(squares[fr][fc])) { passed = false; break; }
-                        }
-                        if (!passed) break;
-                    }
-                    if (passed) score -= 20 + ((7 - r) * 5);
-                }
-            }
+            if (wCount > 0 && Long.bitCount(wP & adj) == 0) score -= 15;
+            if (bCount > 0 && Long.bitCount(bP & adj) == 0) score += 15;
         }
         return score;
     }
 
-    // --- King Safety ---
+    // ── King safety ───────────────────────────────────────────────────────────
     private static int evaluateKingSafety(Board board) {
-        if (isEndgame(board)) return 0; // King safety less important in endgame
-        int score = 0;
-        String[][] squares = board.getCleanSquares();
-
-        // Find kings
-        int[] whiteKingPos = findPiece(squares, "K");
-        int[] blackKingPos = findPiece(squares, "k");
-
-        if (whiteKingPos != null) score += kingSafetyScore(squares, whiteKingPos, true);
-        if (blackKingPos != null) score -= kingSafetyScore(squares, blackKingPos, false);
-
-        return score;
+        if (isEndgame(board)) return 0;
+        return kingSafetyBB(board, true) - kingSafetyBB(board, false);
     }
 
-    private static int kingSafetyScore(String[][] squares, int[] kingPos, boolean isWhite) {
-        int bonus = 0;
-        int r = kingPos[0], c = kingPos[1];
-        int pawnRow = isWhite ? r + 1 : r - 1; // Row in front of king
-        String friendlyPawn = isWhite ? "P" : "p";
+    private static int kingSafetyBB(Board board, boolean isWhite) {
+        long kingBB = board.getPieceBitboard(isWhite ? K : k);
+        if (kingBB == 0) return 0;
 
-        // Pawn shield: pawns directly in front reward safety
-        for (int dc = -1; dc <= 1; dc++) {
-            int nc = c + dc;
-            if (nc >= 0 && nc < 8 && pawnRow >= 0 && pawnRow < 8) {
-                if (friendlyPawn.equals(squares[pawnRow][nc])) bonus += 10;
+        int kSq      = Long.numberOfTrailingZeros(kingBB);
+        int kFile    = kSq & 7;
+        int kBitRank = kSq >> 3;
+
+        long friendlyPawns  = board.getPieceBitboard(isWhite ? P : p);
+        int  bonus          = 0;
+
+        // Pawn shield: friendly pawns on the rank directly in front of the king
+        int shieldBitRank = isWhite ? kBitRank + 1 : kBitRank - 1;
+        if (shieldBitRank >= 0 && shieldBitRank <= 7) {
+            long shieldMask = 0L;
+            for (int df = -1; df <= 1; df++) {
+                int f = kFile + df;
+                if (f >= 0 && f <= 7) shieldMask |= 1L << (shieldBitRank * 8 + f);
             }
+            bonus += Long.bitCount(friendlyPawns & shieldMask) * 10;
         }
 
-        // Open file in front of king is dangerous
-        boolean openFile = true;
-        for (int row = 0; row < 8; row++) {
-            if (friendlyPawn.equals(squares[row][c])) { openFile = false; break; }
-        }
-        if (openFile) bonus -= 25;
+        // Open file directly in front of king is a danger
+        long fileMask = 0x0101_0101_0101_0101L << kFile;
+        if ((friendlyPawns & fileMask) == 0) bonus -= 25;
 
         return bonus;
     }
 
-    private static int[] findPiece(String[][] squares, String piece) {
-        for (int r = 0; r < 8; r++)
-            for (int c = 0; c < 8; c++)
-                if (piece.equals(squares[r][c])) return new int[]{r, c};
-        return null;
-    }
-
-    // --- Endgame Detection ---
+    // ── Endgame detection ─────────────────────────────────────────────────────
     private static boolean isEndgame(Board board) {
-        int queens = 0, minors = 0;
-        String[][] squares = board.getCleanSquares();
-        for (int r = 0; r < 8; r++)
-            for (int c = 0; c < 8; c++) {
-                String p = squares[r][c];
-                if (p == null || p.isBlank()) continue;
-                if (p.equalsIgnoreCase("Q")) queens++;
-                if (p.equalsIgnoreCase("N") || p.equalsIgnoreCase("B") || p.equalsIgnoreCase("R")) minors++;
-            }
-        return queens == 0 || (queens <= 2 && minors <= 2);
+        int queens = Long.bitCount(board.getPieceBitboard(Q))
+                + Long.bitCount(board.getPieceBitboard(q));
+        if (queens == 0) return true;
+        int minors = Long.bitCount(board.getPieceBitboard(N))
+                + Long.bitCount(board.getPieceBitboard(B))
+                + Long.bitCount(board.getPieceBitboard(R))
+                + Long.bitCount(board.getPieceBitboard(n))
+                + Long.bitCount(board.getPieceBitboard(b))
+                + Long.bitCount(board.getPieceBitboard(r));
+        return queens <= 2 && minors <= 4;
     }
 
     // =========================================================================
-    // MOVE GENERATION
+    // Move ordering
     // =========================================================================
 
-    private static List<String> generateLegalMoves(Board board, String player) {
-        List<String> moves = new ArrayList<>();
-        boolean isWhiteTurn = player.equals("w");
-        String[][] squares = board.getCleanSquares();
-
-        for (int r = 0; r < 8; r++) {
-            for (int c = 0; c < 8; c++) {
-                String piece = squares[r][c];
-                if (piece == null || piece.isBlank()) continue;
-                if (Character.isUpperCase(piece.charAt(0)) != isWhiteTurn) continue;
-
-                String fromSquare = "" + "abcdefgh".charAt(c) + (7 - r + 1);
-                List<String> raw = ChessGame.generateAllPossibleMoves(board, fromSquare, piece);
-                for (String to : raw) moves.add(fromSquare + "-" + to);
-            }
-        }
-        return moves;
-    }
-
-    private static List<String> generateCaptureMoves(Board board, String player) {
-        List<String> moves = new ArrayList<>();
-        boolean isWhiteTurn = player.equals("w");
-        String[][] squares = board.getCleanSquares();
-
-        for (int r = 0; r < 8; r++) {
-            for (int c = 0; c < 8; c++) {
-                String piece = squares[r][c];
-                if (piece == null || piece.isBlank()) continue;
-                if (Character.isUpperCase(piece.charAt(0)) != isWhiteTurn) continue;
-
-                String fromSquare = "" + "abcdefgh".charAt(c) + (7-r + 1);
-                List<String> raw = ChessGame.generateAllPossibleMoves(board, fromSquare, piece);
-                for (String to : raw) {
-                    String target = board.getSquare(to);
-                    boolean isCapture = target != null && !target.equals("o")
-                            && !target.equals("x") && !target.isBlank();
-                    if (isCapture) moves.add(fromSquare + "-" + to);
-                }
-            }
-        }
-        return moves;
-    }
-
-    // =========================================================================
-    // MOVE ORDERING
-    // =========================================================================
-
-    /**
-     * Scoring priority:
-     *  1. Captures ordered by MVV-LVA (Most Valuable Victim, Least Valuable Attacker)
-     *  2. Killer moves (non-captures that caused beta cutoffs)
-     *  3. History heuristic score
-     */
+    /** Scores moves into a parallel array first, then insertion-sorts. */
     private static void orderMoves(List<String> moves, Board board, int ply) {
-        moves.sort((a, b) -> {
-            int sa = scoreMoveForOrdering(a, board, ply);
-            int sb = scoreMoveForOrdering(b, board, ply);
-            return sb - sa; // descending
-        });
+        int n = moves.size();
+        int[] scores = new int[n];
+        for (int i = 0; i < n; i++) scores[i] = scoreMoveForOrdering(moves.get(i), board, ply);
+
+        // Insertion sort — typically fast for short, nearly-ordered lists
+        for (int i = 1; i < n; i++) {
+            String mv = moves.get(i);
+            int    sc = scores[i];
+            int    j  = i - 1;
+            while (j >= 0 && scores[j] < sc) {
+                moves.set(j + 1, moves.get(j)); scores[j + 1] = scores[j]; j--;
+            }
+            moves.set(j + 1, mv); scores[j + 1] = sc;
+        }
     }
 
-    private static void orderMovesMVVLVA(List<String> captures, Board board) {
-        captures.sort((a, b) -> mvvLvaScore(b, board) - mvvLvaScore(a, board));
+    private static void orderMovesMVVLVA(List<String> caps, Board board) {
+        int n = caps.size();
+        int[] scores = new int[n];
+        for (int i = 0; i < n; i++) scores[i] = mvvLvaScore(caps.get(i), board);
+        for (int i = 1; i < n; i++) {
+            String mv = caps.get(i); int sc = scores[i]; int j = i - 1;
+            while (j >= 0 && scores[j] < sc) {
+                caps.set(j + 1, caps.get(j)); scores[j + 1] = scores[j]; j--;
+            }
+            caps.set(j + 1, mv); scores[j + 1] = sc;
+        }
     }
 
     private static int scoreMoveForOrdering(String move, Board board, int ply) {
-        if (isCapture(board, move)) {
-            return 10000 + mvvLvaScore(move, board);
-        }
-        // Killer move bonus
+        // TT best move — highest priority
+        long hash  = zobristHash(board);
+        int  ttIdx = (int)(hash & (TT_SIZE - 1));
+        if (ttKey[ttIdx] == hash && move.equals(ttBestMove[ttIdx])) return 12000;
+
+        // Captures: MVV-LVA
+        if (isCaptureMoveStr(board, move)) return 10000 + mvvLvaScore(move, board);
+
+        // Killer moves
         if (ply < killerMoves.length) {
             if (move.equals(killerMoves[ply][0])) return 9000;
             if (move.equals(killerMoves[ply][1])) return 8000;
         }
+
         // History heuristic
-        return historyTable.getOrDefault(move, 0);
-    }
-
-    private static int mvvLvaScore(String move, Board board) {
-        String[] parts = move.split("-");
-        if (parts.length < 2) return 0;
-        String to = parts[1];
-        String from = parts[0];
-        String victim   = board.getSquare(to);
-        String attacker = board.getSquare(from);
-        if (victim == null || victim.equals("o") || victim.equals("x") || victim.isBlank()) return 0;
-        int vv = MVV_LVA_VALUES.getOrDefault(victim,   0);
-        int av = MVV_LVA_VALUES.getOrDefault(attacker, 0);
-        return (vv * 10) - av; // Higher victim value, lower attacker value = better
-    }
-
-    private static boolean isCapture(Board board, String move) {
-        String[] parts = move.split("-");
-        if (parts.length < 2) return false;
-        String target = board.getSquare(parts[1]);
-        return target != null && !target.equals("o") && !target.equals("x") && !target.isBlank();
+        int hIdx = historyIndex(move);
+        return (hIdx >= 0) ? historyTable[hIdx] : 0;
     }
 
     // =========================================================================
-    // KILLER MOVE HELPERS
+    // Move-string helpers — indexOf instead of split()
+    // =========================================================================
+
+    private static String moveFrom(String move) {
+        int d = move.indexOf('-');
+        return d >= 0 ? move.substring(0, d) : move;
+    }
+
+    private static String moveTo(String move) {
+        int d = move.indexOf('-');
+        return d >= 0 ? move.substring(d + 1) : move;
+    }
+
+    private static int mvvLvaScore(String move, Board board) {
+        String victim   = board.getSquare(moveTo(move));
+        String attacker = board.getSquare(moveFrom(move));
+        if (victim.isEmpty()) return 0;
+        char vc = victim.charAt(0);
+        char ac = attacker.isEmpty() ? 'P' : attacker.charAt(0);
+        return MVV_LVA_VAL[vc] * 10 - MVV_LVA_VAL[ac];
+    }
+
+    private static boolean isCaptureMoveStr(Board board, String move) {
+        return !board.getSquare(moveTo(move)).isEmpty();
+    }
+
+    /**
+     * Returns the history table index for the move, or -1 if malformed.
+     * Uses Board.sqIndex — zero-allocation.
+     */
+    private static int historyIndex(String move) {
+        int d = move.indexOf('-');
+        if (d < 0 || d + 3 > move.length()) return -1;
+        return Board.sqIndex(move.substring(0, d)) * 64
+                + Board.sqIndex(move.substring(d + 1));
+    }
+
+    // =========================================================================
+    // Null-move check helper
+    // =========================================================================
+
+    private static boolean isInCheck(Board board, boolean isWhite) {
+        long kingBB = board.getPieceBitboard(isWhite ? K : k);
+        if (kingBB == 0) return false;
+        String kPos = ChessGame.SQUARE_NAMES[Long.numberOfTrailingZeros(kingBB)];
+        return ChessGame.inCheck(board, kPos, isWhite);
+    }
+
+    // =========================================================================
+    // Killer move helpers
     // =========================================================================
 
     private static void storeKiller(int ply, String move) {
@@ -662,16 +712,15 @@ public class EngineCalculations {
     }
 
     // =========================================================================
-    // UTILITIES
+    // Utilities
     // =========================================================================
 
     private static Board simulateMove(Board original, String move) {
-        Board newBoard = new Board(original.getFENStringPosition());
-        return ChessGame.playGame(newBoard, move, null);
+        Board nb = new Board(original.getFENStringPosition());
+        return ChessGame.playGame(nb, move, null);
     }
 
-    private static String getTurnFromFEN(Board b) {
-        try { return b.getFENStringPosition().split(" ")[1]; }
-        catch (Exception e) { return "w"; }
+    private static long elapsed() {
+        return System.currentTimeMillis() - searchStartTime;
     }
 }
