@@ -1,161 +1,222 @@
 package logic;
 
+/**
+ * Moves — Piece-specific move validation.
+ *
+ * All coordinate arithmetic is inline (no allocation).
+ * Obstruction check uses a precomputed BETWEEN[64][64] bitboard table — O(1).
+ * Castling rights and EP square are read via Board's cheap field accessors.
+ *
+ * Coordinate convention:
+ *   col 0..7  (file a=0..h=7)
+ *   row 0..7  (rank-8 = row 0, rank-1 = row 7)   ← array-row convention
+ */
 public class Moves {
+
     private final String piece;
-    private final Board board;
+    private final Board  board;
+    private final char   pieceChar;   // extracted once to avoid repeated charAt(0)
 
-    public Moves(String piece, Board board) {
-        this.board = board;
-        this.piece = piece;
-    }
+    // =========================================================================
+    // Precomputed BETWEEN table
+    // between[from][to] = mask of squares strictly between from and to
+    // on the same rank, file, or diagonal.  0 for unaligned or adjacent squares.
+    // 64×64×8 bytes = 32 KB — fits in L1 cache.
+    // =========================================================================
 
-    private Integer[][] processMoves(String from, String to) {
-        Integer[] f = board.processFileAndRank(from);
-        Integer[] t = board.processFileAndRank(to);
-        return new Integer[][]{{f[0], f[1]}, {t[0], t[1]}};
-    }
+    private static final long[][] BETWEEN = new long[64][64];
 
+    static {
+        for (int from = 0; from < 64; from++) {
+            int fr = from >> 3, ff = from & 7;
+            for (int to = 0; to < 64; to++) {
+                if (from == to) continue;
+                int tr = to >> 3, tf = to & 7;
+                int dr = Integer.compare(tr, fr);
+                int df = Integer.compare(tf, ff);
 
-    public boolean isPromotion(String from, String to) {
-        if (!piece.equalsIgnoreCase("p")) return false;
-        
-        Integer[][] m = processMoves(from, to);
-        int endRow = m[1][1];
+                boolean rankAligned = (fr == tr);
+                boolean fileAligned = (ff == tf);
+                boolean diagAligned = (Math.abs(tr - fr) == Math.abs(tf - ff));
+                if (!rankAligned && !fileAligned && !diagAligned) continue;
 
-        return (piece.equals("P") && endRow == 0) || (piece.equals("p") && endRow == 7);
-    }
-
-    private boolean isEnPassantCapture(String from, String to) {
-        if (!piece.equalsIgnoreCase("p")) return false;
-
-        try {
-            String[] fenParts = board.getFENStringPosition().split(" ");
-            String enPassantTarget = fenParts[3];
-
-            return enPassantTarget.equals(to);
-        } catch (Exception e) {
-            return false;
+                long mask = 0L;
+                int cr = fr + dr, cf = ff + df;
+                while (cr != tr || cf != tf) {
+                    mask |= 1L << (cr * 8 + cf);
+                    cr += dr; cf += df;
+                }
+                BETWEEN[from][to] = mask;
+            }
         }
     }
 
+    // =========================================================================
+    // Constructor
+    // =========================================================================
 
+    public Moves(String piece, Board board) {
+        this.piece     = piece;
+        this.board     = board;
+        this.pieceChar = piece.charAt(0);
+    }
+
+    // =========================================================================
+    // Coordinate helpers — inline arithmetic, no allocation
+    // =========================================================================
+
+    /** Algebraic square → column (0 = a-file, 7 = h-file). */
+    private static int col(String sq) { return sq.charAt(0) - 'a'; }
+
+    /** Algebraic square → array-row (0 = rank-8, 7 = rank-1). */
+    private static int row(String sq) { return '8' - sq.charAt(1); }
+
+    // =========================================================================
+    // Promotion detection
+    // =========================================================================
+
+    /** Returns true if this pawn move ends on the back rank (promotion). */
+    public boolean isPromotion(String from, String to) {
+        if (pieceChar != 'P' && pieceChar != 'p') return false;
+        int endRow = row(to);
+        return (pieceChar == 'P' && endRow == 0)    // White reaches rank-8 → row 0
+                || (pieceChar == 'p' && endRow == 7);   // Black reaches rank-1 → row 7
+    }
+
+    // =========================================================================
+    // En-passant (reads EP field directly — no FEN split)
+    // =========================================================================
+
+    private boolean isEnPassantCapture(String to) {
+        String ep = board.getEnPassantSquare();
+        return ep != null && ep.equals(to);
+    }
+
+    // =========================================================================
+    // Pawn move
+    // =========================================================================
+
+    /**
+     * Validates all pawn move types: single push, double push,
+     * diagonal capture, en-passant.
+     *
+     * Row 0 = rank-8 (White's promotion rank), row 7 = rank-1.
+     * White pawns start on row 6, advance toward row 0 (rowDiff negative).
+     * Black pawns start on row 1, advance toward row 7 (rowDiff positive).
+     */
     public boolean pawnMove(String from, String to) {
-        Integer[][] m = processMoves(from, to);
-        int c1 = m[0][0], r1 = m[0][1];
-        int c2 = m[1][0], r2 = m[1][1];
-
-        int colDiff = Math.abs(c2 - c1);
+        int c1 = col(from), r1 = row(from);
+        int c2 = col(to),   r2 = row(to);
+        int colDiff = c2 - c1;
         int rowDiff = r2 - r1;
 
-        String target = board.getSquare(to);
-        boolean occupied = !target.equals("o") && !target.equals("x") && !target.isEmpty();
+        boolean occupied = !board.getSquare(to).isEmpty();
 
-        if (piece.equals("P")) {
+        if (pieceChar == 'P') {
             if (colDiff == 0 && rowDiff == -1 && !occupied) return true;
             if (colDiff == 0 && rowDiff == -2 && r1 == 6 && !occupied) {
-
-                String mid = board.getSquares()[5][c1].trim(); 
-                return mid.equals("o") || mid.equals("x");
+                // Passed-through square: rank-3 = bitRank 2
+                return (board.occupancy & (1L << (2 * 8 + c1))) == 0;
+            }
+            if ((colDiff == 1 || colDiff == -1) && rowDiff == -1) {
+                return occupied || isEnPassantCapture(to);
             }
 
-            if (colDiff == 1 && rowDiff == -1) {
-                return occupied || isEnPassantCapture(from, to);
-            }
-        } 
-        
-        else if (piece.equals("p")) {
+        } else if (pieceChar == 'p') {
             if (colDiff == 0 && rowDiff == 1 && !occupied) return true;
             if (colDiff == 0 && rowDiff == 2 && r1 == 1 && !occupied) {
-                String mid = board.getSquares()[2][c1].trim();
-                return mid.equals("o") || mid.equals("x");
+                // Passed-through square: rank-6 = bitRank 5
+                return (board.occupancy & (1L << (5 * 8 + c1))) == 0;
             }
-            if (colDiff == 1 && rowDiff == 1) {
-                return occupied || isEnPassantCapture(from, to);
+            if ((colDiff == 1 || colDiff == -1) && rowDiff == 1) {
+                return occupied || isEnPassantCapture(to);
             }
         }
         return false;
     }
 
+    // =========================================================================
+    // Obstruction check — O(1) via BETWEEN table
+    // =========================================================================
+
+    /**
+     * Returns true if any piece lies strictly between 'from' and 'to'.
+     * Uses the precomputed BETWEEN table ANDed with the occupancy bitboard.
+     * Always returns false for knights.
+     */
+    public boolean pieceInRange(String from, String to) {
+        if (pieceChar == 'N' || pieceChar == 'n') return false;
+        int fromSq = Board.sqIndex(from);
+        int toSq   = Board.sqIndex(to);
+        return (BETWEEN[fromSq][toSq] & board.occupancy) != 0;
+    }
+
+    // =========================================================================
+    // Castling (reads castling rights without FEN split)
+    // =========================================================================
+
+    /**
+     * Returns true if this king move is a legal castling attempt:
+     * rights present and path clear.  Check-safety is enforced by ChessGame.
+     */
     public boolean canCastle(String from, String to) {
-        if (!piece.equalsIgnoreCase("k")) return false;
+        if (pieceChar != 'K' && pieceChar != 'k') return false;
 
-        Integer[][] m = processMoves(from, to);
-        int startCol = m[0][0], startRow = m[0][1];
-        int endCol = m[1][0], endRow = m[1][1];
+        int dc = col(to) - col(from);
+        int dr = row(to) - row(from);
+        if ((dc != 2 && dc != -2) || dr != 0) return false;
 
-        if (Math.abs(endCol - startCol) != 2 || startRow != endRow) return false;
-
-        String rights = board.getFENStringPosition().split(" ")[2];
-        boolean isWhite = piece.equals("K");
-        boolean kingSide = endCol > startCol;
+        String rights  = board.getCastlingRights();
+        boolean isWhite  = (pieceChar == 'K');
+        boolean kingSide = (dc > 0);
 
         if (isWhite) {
-            if (kingSide && !rights.contains("K")) return false;
+            if ( kingSide && !rights.contains("K")) return false;
             if (!kingSide && !rights.contains("Q")) return false;
         } else {
-            if (kingSide && !rights.contains("k")) return false;
+            if ( kingSide && !rights.contains("k")) return false;
             if (!kingSide && !rights.contains("q")) return false;
         }
 
+        // All squares between king and destination must be clear
         if (pieceInRange(from, to)) return false;
 
-        String dest = board.getSquare(to);
-        if (!dest.equals("o") && !dest.equals("x") && !dest.isEmpty()) return false;
-
-        return true;
+        // Destination square must be unoccupied
+        return (board.occupancy & (1L << Board.sqIndex(to))) == 0;
     }
 
-    public boolean pieceInRange(String from, String to) {
-        Integer[][] m = processMoves(from, to);
-        int x1 = m[0][0], y1 = m[0][1];
-        int x2 = m[1][0], y2 = m[1][1];
-
-        int dx = Integer.compare(x2, x1);
-        int dy = Integer.compare(y2, y1);
-        
-        if (piece.equalsIgnoreCase("n")) return false; 
-
-        int currX = x1 + dx;
-        int currY = y1 + dy;
-
-        while (currX != x2 || currY != y2) {
-            if (currX < 0 || currX > 7 || currY < 0 || currY > 7) return false;
-            String p = board.getSquares()[currY][currX].trim();
-            if (!p.equals("o") && !p.equals("x") && !p.isEmpty()) return true;
-            currX += dx;
-            currY += dy;
-        }
-        return false;
-    }
+    // =========================================================================
+    // Piece move validators
+    // =========================================================================
 
     public boolean kingMove(String from, String to) {
         if (canCastle(from, to)) return true;
-        Integer[][] m = processMoves(from, to);
-        int dx = Math.abs(m[0][0] - m[1][0]);
-        int dy = Math.abs(m[0][1] - m[1][1]);
-        return dx <= 1 && dy <= 1;
+        int dx = Math.abs(col(from) - col(to));
+        int dy = Math.abs(row(from) - row(to));
+        return dx <= 1 && dy <= 1 && (dx + dy > 0);
     }
 
-    public boolean rookMove(String f, String t) {
-        Integer[][] m = processMoves(f, t);
-        if (m[0][0] != m[1][0] && m[0][1] != m[1][1]) return false;
-        return !pieceInRange(f, t);
+    public boolean rookMove(String from, String to) {
+        int c1 = col(from), r1 = row(from);
+        int c2 = col(to),   r2 = row(to);
+        if (c1 != c2 && r1 != r2) return false;
+        return !pieceInRange(from, to);
     }
 
-    public boolean bishopMove(String f, String t) {
-        Integer[][] m = processMoves(f, t);
-        if (Math.abs(m[0][0] - m[1][0]) != Math.abs(m[0][1] - m[1][1])) return false;
-        return !pieceInRange(f, t);
+    public boolean bishopMove(String from, String to) {
+        int dc = Math.abs(col(from) - col(to));
+        int dr = Math.abs(row(from) - row(to));
+        if (dc != dr || dc == 0) return false;
+        return !pieceInRange(from, to);
     }
 
-    public boolean queenMove(String f, String t) {
-        return rookMove(f, t) || bishopMove(f, t);
+    public boolean queenMove(String from, String to) {
+        return rookMove(from, to) || bishopMove(from, to);
     }
 
-    public boolean knightMove(String f, String t) {
-        Integer[][] m = processMoves(f, t);
-        int dx = Math.abs(m[0][0] - m[1][0]);
-        int dy = Math.abs(m[0][1] - m[1][1]);
+    public boolean knightMove(String from, String to) {
+        int dx = Math.abs(col(from) - col(to));
+        int dy = Math.abs(row(from) - row(to));
         return (dx == 2 && dy == 1) || (dx == 1 && dy == 2);
     }
 }

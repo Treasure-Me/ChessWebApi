@@ -360,6 +360,8 @@ class ChessUI {
             this.updateBoardState(result.newBoard);
             this.addToHistory(from, to);
             this.clearSelection();
+            console.log(this.currentBoard);
+            console.log(result.status);
             if ((this.gameMode === 'bot' || this.gameMode === 'devbot') && this.currentPlayer === 'black') {
                 await this.triggerBot();
             }
