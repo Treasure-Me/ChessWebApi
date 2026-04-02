@@ -6,29 +6,17 @@ import java.util.Arrays;
 /**
  * Board — Bitboard chess board.
  *
- * ── FEN side-to-move contract ────────────────────────────────────────────────
- * setSquare() is a RAW BITBOARD MUTATION. It does NOT toggle the side-to-move
- * and does NOT rebuild the FEN string. Callers (ChessGame.updateFEN) are
- * responsible for toggling fenSide exactly once per half-move and for calling
- * commitFEN() when all fields are settled.
+ * FEN side-to-move contract:
+ *   setSquare() does NOT toggle the side-to-move and does NOT rebuild the FEN.
+ *   ChessGame.updateFEN calls toggleSideToMove() exactly once per half-move,
+ *   then setFENFields(), then commitFEN().
  *
- * This is the key fix over the previous version, which toggled fenSide inside
- * setSquare(). Because makeMove() calls setSquare() twice (clear origin,
- * place on destination) the side-to-move was being double-toggled and
- * effectively never changing.
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * Other optimisations retained:
- *  • FEN_TO_INDEX  — 128-int array, no HashMap boxing.
- *  • sqIndex()     — pure arithmetic, zero allocation.
- *  • processFileAndRank() — returns primitive int[].
- *  • buildFENPosition() — char[] buffer, uses occupancy fast-path.
- *  • getSquare() checks occupancy before scanning 12 bitboards.
- *  • Cheap field accessors (getSideToMove etc.) avoid split().
- *
- * Coordinate contract:
- *   sqIndex  = bitRank * 8 + file   (bitRank 0 = rank-1, bitRank 7 = rank-8)
- *   processFileAndRank("a1") → {col=0, row=7}  (row 0 = rank-8, row 7 = rank-1)
+ * Optimisations:
+ *   FEN_TO_INDEX — 128-int array, no HashMap boxing.
+ *   sqIndex()    — pure arithmetic, zero allocation.
+ *   processFileAndRank() — primitive int[].
+ *   buildFENPosition()   — char[] buffer, occupancy fast-path.
+ *   Cheap field accessors avoid getFENStringPosition().split().
  */
 public class Board {
 
@@ -36,7 +24,6 @@ public class Board {
     // Lookup tables
     // =========================================================================
 
-    /** char → bitboard-index. Unknown chars map to -1. */
     static final int[] FEN_TO_INDEX = new int[128];
     static {
         Arrays.fill(FEN_TO_INDEX, -1);
@@ -46,11 +33,9 @@ public class Board {
         FEN_TO_INDEX['r'] = 9;  FEN_TO_INDEX['q'] = 10; FEN_TO_INDEX['k'] = 11;
     }
 
-    /** index → single-char FEN string. */
     static final String[] INDEX_TO_FEN =
             {"P","N","B","R","Q","K","p","n","b","r","q","k"};
 
-    /** index → FEN char (used in buildFENPosition to avoid String allocation). */
     static final char[] INDEX_TO_CHAR =
             {'P','N','B','R','Q','K','p','n','b','r','q','k'};
 
@@ -58,29 +43,16 @@ public class Board {
     // Bitboard state
     // =========================================================================
 
-    /** One bitboard per piece type (indices 0-11). Package-visible for engine. */
     final long[] pieceBB = new long[12];
-
-    /** Union of all occupied squares — always in sync with pieceBB. */
     long occupancy = 0L;
 
     // =========================================================================
     // FEN state
     // =========================================================================
 
-    /**
-     * The last committed FEN string. May be stale if fenDirty == true.
-     * Rebuilt by commitFEN() when ChessGame signals that all fields are settled.
-     */
     private String fenString;
-
-    /**
-     * Set when the bitboards have been mutated but commitFEN() hasn't been
-     * called yet. getFENStringPosition() rebuilds lazily when this is true.
-     */
     private boolean fenDirty = false;
 
-    // Non-position FEN fields — stored separately so callers never need split().
     private String fenSide     = "w";
     private String fenCastling = "KQkq";
     private String fenEP       = "-";
@@ -116,8 +88,7 @@ public class Board {
 
         fenSide = "w"; fenCastling = "KQkq"; fenEP = "-"; fenHalf = "0"; fenFull = "1";
 
-        int len = fen.length();
-        int fieldStart = 0, fieldIdx = 0;
+        int len = fen.length(), fieldStart = 0, fieldIdx = 0;
         String position = null;
 
         for (int i = 0; i <= len; i++) {
@@ -160,11 +131,9 @@ public class Board {
     // FEN building
     // =========================================================================
 
-    /** Builds the piece-placement part of the FEN into a char[] buffer. */
     private String buildFENPosition() {
-        char[] buf = new char[72];   // max 71 chars
+        char[] buf = new char[72];
         int pos = 0;
-
         for (int rank = 7; rank >= 0; rank--) {
             long rankMask = 0xFFL << (rank * 8);
             if ((occupancy & rankMask) == 0) {
@@ -190,9 +159,8 @@ public class Board {
     }
 
     /**
-     * Forces a complete FEN rebuild from the current bitboards and field values.
-     * Called once by ChessGame.updateFEN after every completed half-move, after
-     * side-to-move, castling rights, and EP square have all been updated.
+     * Forces a complete FEN rebuild from current bitboards + field values.
+     * Called once by ChessGame.updateFEN after each completed half-move.
      */
     public void commitFEN() {
         fenString = buildFENPosition()
@@ -201,17 +169,14 @@ public class Board {
         fenDirty = false;
     }
 
-    /**
-     * Toggles the side-to-move field.
-     * Called ONCE per half-move by ChessGame.updateFEN, NOT inside setSquare.
-     */
+    /** Toggles the side-to-move field. Called once per half-move by updateFEN. */
     public void toggleSideToMove() {
         fenSide  = fenSide.equals("w") ? "b" : "w";
         fenDirty = true;
     }
 
     /**
-     * Updates castling rights and EP square without rebuilding the full FEN.
+     * Updates castling rights and EP square.
      * Must be followed by commitFEN() to produce a valid FEN string.
      */
     public void setFENFields(String castling, String ep) {
@@ -224,25 +189,23 @@ public class Board {
     // Public FEN accessors
     // =========================================================================
 
-    /** Returns the current FEN, rebuilding lazily if stale. */
     public String getFENStringPosition() {
         if (fenDirty) commitFEN();
         return fenString;
     }
 
-    /** Side-to-move ("w" or "b") — no FEN rebuild required. */
     public String getSideToMove()      { return fenSide; }
-
-    /** Castling rights string ("KQkq", "-", etc.) — no FEN rebuild required. */
     public String getCastlingRights()  { return fenCastling; }
-
-    /** En-passant target square ("e3", "-", etc.) — no FEN rebuild required. */
     public String getEnPassantSquare() { return fenEP; }
+    public String getHalfmoveClock()   { return fenHalf; }
+    public String getFullmoveNumber()  { return fenFull; }
 
-    /**
-     * Replaces the FEN string completely and reloads bitboards.
-     * Used by the engine's simulateMove to seed a fresh board.
-     */
+    /** Updates the halfmove clock (called by ChessGame.updateFEN). */
+    public void setHalfmoveClock(int half) {
+        fenHalf  = String.valueOf(half);
+        fenDirty = true;
+    }
+
     public void setRawFEN(String fen) {
         this.fenString = fen;
         loadFromFEN(fen);
@@ -250,21 +213,13 @@ public class Board {
     }
 
     // =========================================================================
-    // Square index helpers (zero allocation)
+    // Square index helpers
     // =========================================================================
 
-    /**
-     * Algebraic square → bitboard square index.
-     *   sqIndex("a1") = 0,  sqIndex("h8") = 63
-     */
     public static int sqIndex(String square) {
         return ((square.charAt(1) - '1') << 3) | (square.charAt(0) - 'a');
     }
 
-    /**
-     * Algebraic square → {col, row} where row 0 = rank-8, row 7 = rank-1.
-     * Returns primitive int[] to avoid Integer[] boxing.
-     */
     public int[] processFileAndRank(String square) {
         if (square == null || square.length() != 2)
             throw new IllegalArgumentException("Invalid square: " + square);
@@ -279,10 +234,6 @@ public class Board {
     // Square accessors
     // =========================================================================
 
-    /**
-     * Returns the FEN piece string on 'square', or "" if empty.
-     * Checks occupancy before scanning all 12 bitboards.
-     */
     public String getSquare(String square) {
         if (square == null || square.length() != 2) return "";
         long bit = 1L << sqIndex(square);
@@ -293,10 +244,6 @@ public class Board {
         return "";
     }
 
-    /**
-     * Returns the bitboard index (0-11) of the piece at square index 'sq',
-     * or -1 if empty. Zero-allocation hot path.
-     */
     public int getPieceAt(int sq) {
         long bit = 1L << sq;
         if ((occupancy & bit) == 0) return -1;
@@ -308,15 +255,10 @@ public class Board {
 
     /**
      * Places 'piece' on 'square', or clears it if piece is null/"".
-     *
-     * IMPORTANT: this method does NOT toggle the side-to-move and does NOT
-     * rebuild the FEN string. It only mutates the bitboards and marks fenDirty.
-     * ChessGame.updateFEN is responsible for calling toggleSideToMove(),
-     * setFENFields(), and commitFEN() once per half-move.
+     * Does NOT toggle side-to-move. Marks fenDirty only.
      */
     public void setSquare(String square, String piece) {
         long bit = 1L << sqIndex(square);
-
         for (int i = 0; i < 12; i++) pieceBB[i] &= ~bit;
         occupancy &= ~bit;
 
@@ -324,28 +266,21 @@ public class Board {
             char c = piece.charAt(0);
             if (c < 128) {
                 int idx = FEN_TO_INDEX[c];
-                if (idx >= 0) {
-                    pieceBB[idx] |= bit;
-                    occupancy    |= bit;
-                }
+                if (idx >= 0) { pieceBB[idx] |= bit; occupancy |= bit; }
             }
         }
-        fenDirty = true;   // position is stale; FEN will be rebuilt by commitFEN()
+        fenDirty = true;
     }
 
     // =========================================================================
     // 2-D board view
     // =========================================================================
 
-    /**
-     * Returns an 8×8 array: [0][0] = rank-8/a-file, [7][7] = rank-1/h-file.
-     * Empty squares are "".
-     */
     public String[][] getCleanSquares() {
         String[][] squares = new String[8][8];
         for (int row = 0; row < 8; row++) {
-            int bitRank = 7 - row;
-            long rankBB = (occupancy >>> (bitRank * 8)) & 0xFFL;
+            int  bitRank = 7 - row;
+            long rankBB  = (occupancy >>> (bitRank * 8)) & 0xFFL;
             for (int col = 0; col < 8; col++) {
                 if ((rankBB & (1L << col)) == 0) {
                     squares[row][col] = "";
@@ -353,10 +288,7 @@ public class Board {
                     long bit = 1L << (bitRank * 8 + col);
                     squares[row][col] = "";
                     for (int i = 0; i < 12; i++) {
-                        if ((pieceBB[i] & bit) != 0) {
-                            squares[row][col] = INDEX_TO_FEN[i];
-                            break;
-                        }
+                        if ((pieceBB[i] & bit) != 0) { squares[row][col] = INDEX_TO_FEN[i]; break; }
                     }
                 }
             }
@@ -368,19 +300,11 @@ public class Board {
     // Piece-position queries
     // =========================================================================
 
-    /**
-     * Returns the raw bitboard for 'pieceChar' (e.g. 'K', 'p').
-     * Prefer bit-scanning over getPiecePositions in hot paths.
-     */
     public long getBitboardFor(char pieceChar) {
         int idx = (pieceChar < 128) ? FEN_TO_INDEX[pieceChar] : -1;
         return (idx >= 0) ? pieceBB[idx] : 0L;
     }
 
-    /**
-     * Returns algebraic square strings for the given piece (e.g. "K", "p").
-     * Use getBitboardFor + bit-scanning in tight loops to avoid allocation.
-     */
     public ArrayList<String> getPiecePositions(String piece) {
         ArrayList<String> positions = new ArrayList<>();
         if (piece == null || piece.isEmpty()) return positions;
@@ -397,7 +321,7 @@ public class Board {
     }
 
     // =========================================================================
-    // Bitboard accessors (engine evaluation fast path)
+    // Bitboard accessors
     // =========================================================================
 
     public long getPieceBitboard(int i) { return pieceBB[i]; }
