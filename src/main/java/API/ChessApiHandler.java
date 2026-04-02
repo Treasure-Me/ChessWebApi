@@ -236,7 +236,7 @@ public class ChessApiHandler {
                     }
                 } catch (Exception e) {
                 }
-
+                System.out.println(game.getBoard().getFENStringPosition());
                 context.json(result != null ? result : Map.of("success", false));
                 break;
 

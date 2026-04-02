@@ -3,322 +3,423 @@ package logic;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * ChessGame — Main game logic and move execution.
+ *
+ * ── FEN side-to-move contract ────────────────────────────────────────────────
+ * Board.setSquare() NO LONGER toggles the side-to-move (that was the root bug).
+ * This class owns the toggle: updateFEN() calls board.toggleSideToMove() exactly
+ * once per completed half-move, then board.setFENFields(), then board.commitFEN().
+ *
+ * makeMove / undoMove call setSquare() as many times as needed — none of those
+ * calls affect the side-to-move field.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
 public class ChessGame {
-    private static final ArrayList<String> whitePieces = new ArrayList<>(List.of("R","N","K","Q","P","B"));
-    private static final ArrayList<String> blackPieces = new ArrayList<>(List.of("r","n","k","q","p","b"));
 
-    private static boolean identifyPlayPiece(String piece, Moves moves, String from, String to) {
+    // =========================================================================
+    // Pre-built tables
+    // =========================================================================
+
+    /**
+     * SQUARE_NAMES[sq] = algebraic name for bitboard square index sq.
+     * sq = bitRank*8 + file,  bitRank 0 = rank-1, bitRank 7 = rank-8.
+     */
+    public static final String[] SQUARE_NAMES = new String[64];
+    static {
+        for (int sq = 0; sq < 64; sq++)
+            SQUARE_NAMES[sq] = "" + (char)('a' + (sq & 7)) + (char)('1' + (sq >> 3));
+    }
+
+    /**
+     * ALL_SQUARES[0..63] — every algebraic square in rank-1-first order.
+     * Used as the destination candidate list in generateAllPossibleMoves.
+     */
+    private static final String[] ALL_SQUARES = new String[64];
+    static {
+        int idx = 0;
+        for (int r = 1; r <= 8; r++)
+            for (char f = 'a'; f <= 'h'; f++)
+                ALL_SQUARES[idx++] = "" + f + r;
+    }
+
+    // Bitboard index ranges
+    private static final int WHITE_START = 0, WHITE_END = 5;
+    private static final int BLACK_START = 6, BLACK_END = 11;
+
+    // =========================================================================
+    // Piece dispatch
+    // =========================================================================
+
+    static boolean identifyPlayPiece(String piece, Moves moves, String from, String to) {
         return switch (piece) {
-            case "P", "p" -> moves.pawnMove(from, to);
-            case "R", "r" -> moves.rookMove(from, to);
-            case "N", "n" -> moves.knightMove(from, to);
-            case "B", "b" -> moves.bishopMove(from, to);
-            case "Q", "q" -> moves.queenMove(from, to);
-            case "K", "k" -> moves.kingMove(from, to);
-            default -> false;
+            case "P","p" -> moves.pawnMove(from, to);
+            case "R","r" -> moves.rookMove(from, to);
+            case "N","n" -> moves.knightMove(from, to);
+            case "B","b" -> moves.bishopMove(from, to);
+            case "Q","q" -> moves.queenMove(from, to);
+            case "K","k" -> moves.kingMove(from, to);
+            default      -> false;
         };
     }
 
-    public static Board playGame(Board board, String playerMove, String promotionPiece) {
-        String[] parts = playerMove.split("-");
-        if (parts.length != 2) return board;
+    // =========================================================================
+    // Main entry point
+    // =========================================================================
 
-        String from = parts[0];
-        String to = parts[1];
+    public static Board playGame(Board board, String playerMove, String promotionPiece) {
+        int dash = playerMove.indexOf('-');
+        if (dash < 0) { board.setGameState("Invalid Move"); return board; }
+
+        String from  = playerMove.substring(0, dash);
+        String to    = playerMove.substring(dash + 1);
         String piece = board.getSquare(from);
 
-        if (piece.isEmpty() || piece.equals("x") || piece.equals("o")) return board;
+        if (piece.isEmpty()) { board.setGameState("Invalid Move"); return board; }
 
-        String turn = board.getFENStringPosition().split(" ")[1];
-        boolean isWhiteTurn = turn.equals("w");
+        // ── Turn validation ──────────────────────────────────────────────────
+        boolean isWhiteTurn  = board.getSideToMove().equals("w");
         boolean isWhitePiece = Character.isUpperCase(piece.charAt(0));
+
         if (isWhiteTurn != isWhitePiece) {
             board.setGameState("Not your turn");
             return board;
         }
 
+        // ── Own-piece capture guard ──────────────────────────────────────────
         String target = board.getSquare(to);
-        boolean targetOccupied = !target.equals("o") && !target.equals("x") && !target.isEmpty();
-        if (targetOccupied) {
-            boolean targetIsWhite = Character.isUpperCase(target.charAt(0));
-            if (isWhitePiece == targetIsWhite) {
-                board.setGameState("Cannot capture own piece");
-                return board;
-            }
-        }
-
-        Moves moves = new Moves(piece, board);
-        if (identifyPlayPiece(piece, moves, from, to)) {
-            boolean isCastling = piece.equalsIgnoreCase("k") && Math.abs(from.charAt(0) - to.charAt(0)) == 2;
-
-            if (isCastling) {
-                String midSquare = getMiddleSquare(from, to);
-                if (inCheck(board, from, isWhiteTurn) || inCheck(board, midSquare, isWhiteTurn)) {
-                    board.setGameState("Illegal: Cannot castle out of or through check");
-                    return board;
-                }
-            }
-
-            // Execute Move
-            String captured = board.getSquare(to);
-            makeMove(from, to, board, piece);
-            if (isCastling) handleCastlingRook(from, to, board, false);
-
-            // King Safety
-            String kingPiece = isWhiteTurn ? "K" : "k";
-            String kingPos = board.getPiecePositions(kingPiece).get(0);
-
-            if (inCheck(board, kingPos, isWhiteTurn)) {
-                undoMove(from, to, board, piece, captured);
-                if (isCastling) handleCastlingRook(from, to, board, true);
-                board.setGameState("Illegal: King in check");
-                return board;
-            }
-
-            if (piece.equals("P") && to.charAt(1) == '8') {
-                String promo = (promotionPiece == null || promotionPiece.isEmpty()) ? "Q" : promotionPiece.toUpperCase();
-                board.setSquare(to, promo);
-            }
-
-            if (piece.equals("p") && to.charAt(1) == '1') {
-                String promo = (promotionPiece == null || promotionPiece.isEmpty()) ? "q" : promotionPiece.toLowerCase();
-                board.setSquare(to, promo);
-            }
-
-            String[] enPassantList = possibleEnPassant(from, to, piece,board);
-            String finalPiece = board.getSquare(to);
-
-            if (enPassantList != null){
-                updateFEN(board, finalPiece, from, enPassantList[0], enPassantList[1]);
-            }else{
-                updateFEN(board, finalPiece, from, null, null);
-            }
-
-            String nextTurn = isWhiteTurn ? "b" : "w";
-            if (isCheckmate(board, nextTurn)) {
-                String winner = isWhiteTurn ? "White" : "Black";
-                board.setGameState("Checkmate! " + winner + " wins!");
-            }else if (isStaleMate(board)){
-                board.setGameState("Game Over: Stalemate.");
-            }else {
-                board.setGameState("ongoing");
-            }
+        if (!target.isEmpty() && (isWhitePiece == Character.isUpperCase(target.charAt(0)))) {
+            board.setGameState("Cannot capture own piece");
             return board;
         }
 
-        board.setGameState("Invalid Move");
+        // ── Move validation ──────────────────────────────────────────────────
+        Moves moves = new Moves(piece, board);
+        if (!identifyPlayPiece(piece, moves, from, to)) {
+            board.setGameState("Invalid Move");
+            return board;
+        }
+
+        // ── Castling: king must not start in or pass through check ───────────
+        boolean isCastling = piece.equalsIgnoreCase("k")
+                && Math.abs(from.charAt(0) - to.charAt(0)) == 2;
+
+        if (isCastling) {
+            String mid = getMiddleSquare(from, to);
+            if (inCheck(board, from, isWhiteTurn) || inCheck(board, mid, isWhiteTurn)) {
+                board.setGameState("Illegal: Cannot castle out of or through check");
+                return board;
+            }
+        }
+
+        // ── Execute move (bitboards only — no FEN side-to-move toggle yet) ───
+        String captured = board.getSquare(to);
+        makeMove(from, to, board, piece);
+        if (isCastling) handleCastlingRook(from, to, board, false);
+
+        // ── King-safety check ────────────────────────────────────────────────
+        String kingPos = findKingPos(board, isWhiteTurn,
+                piece.equalsIgnoreCase("k") ? to : null);
+
+        if (!kingPos.isEmpty() && inCheck(board, kingPos, isWhiteTurn)) {
+            undoMove(from, to, board, piece, captured);
+            if (isCastling) handleCastlingRook(from, to, board, true);
+            board.setGameState("Illegal: King in check");
+            return board;
+        }
+
+        // ── Pawn promotion ────────────────────────────────────────────────────
+        if (piece.equals("P") && to.charAt(1) == '8') {
+            String promo = (promotionPiece == null || promotionPiece.isEmpty())
+                    ? "Q" : promotionPiece.toUpperCase();
+            board.setSquare(to, promo);
+        } else if (piece.equals("p") && to.charAt(1) == '1') {
+            String promo = (promotionPiece == null || promotionPiece.isEmpty())
+                    ? "q" : promotionPiece.toLowerCase();
+            board.setSquare(to, promo);
+        }
+
+        // ── FEN bookkeeping (toggles side-to-move exactly once) ──────────────
+        String finalPiece = board.getSquare(to);
+        String[] epInfo   = possibleEnPassant(from, to, piece);
+        updateFEN(board, finalPiece, from, epInfo != null ? epInfo[0] : null);
+
+        // ── Game-end detection ────────────────────────────────────────────────
+        String nextTurn     = isWhiteTurn ? "b" : "w";
+        boolean nextInCheck = inCheck(board, findKingPos(board, !isWhiteTurn, null), !isWhiteTurn);
+        boolean hasMove     = hasLegalMove(board, nextTurn);
+
+        if (!hasMove && nextInCheck) {
+            board.setGameState("Checkmate! " + (isWhiteTurn ? "White" : "Black") + " wins!");
+        } else if (!hasMove) {
+            board.setGameState("Game Over: Stalemate.");
+        } else {
+            board.setGameState("ongoing");
+        }
         return board;
     }
 
-    private static String[] possibleEnPassant(String from, String to, String piece, Board board){
-        int rankFrom = board.processFileAndRank(from)[1];
-        int rankTo = board.processFileAndRank(to)[1];
-        int fileTo = board.processFileAndRank(to)[0];
+    // =========================================================================
+    // King-position helper (no allocation when king just moved)
+    // =========================================================================
 
-        if (piece.equalsIgnoreCase("p") && Math.abs(rankFrom-rankTo) == 2){
-            Character targetFileName1 = fileTo < 7 ? "abcdefgh".charAt(fileTo+1) : null;
-            Character targetFileName2 = fileTo > 0 ? "abcdefgh".charAt(fileTo-1) : null;
-            String targetSquare1 = "";
-            String targetSquare2 = "";
+    private static String findKingPos(Board board, boolean isWhite, String hint) {
+        if (hint != null) return hint;
+        long bb = board.getPieceBitboard(isWhite ? 5 : 11);   // K=5, k=11
+        if (bb == 0) return "";
+        return SQUARE_NAMES[Long.numberOfTrailingZeros(bb)];
+    }
 
-            if (targetFileName1 != null){
-                targetSquare1 = String.valueOf(targetFileName1 + rankTo);
-            }else if (targetFileName2 != null){
-                targetSquare2 = String.valueOf(targetFileName2+rankTo);
-            }
+    // =========================================================================
+    // En-passant square after a double pawn push
+    // =========================================================================
 
-            String piece1 = board.getSquare(targetSquare1);
-            String piece2 = targetFileName2 != null ? board.getSquare(targetSquare2) : null;
+    /**
+     * Returns {"e3"} (or the relevant square) if the move was a double pawn push,
+     * otherwise null.  Only the EP target square is needed.
+     */
+    private static String[] possibleEnPassant(String from, String to, String piece) {
+        char fromRank = from.charAt(1);
+        char toRank   = to.charAt(1);
+        char file     = from.charAt(0);
 
-            if (piece1 != null && piece1.equalsIgnoreCase("p")){
-                String toSquare = String.valueOf(targetFileName1 + (rankTo+1));
-                return new String[]{targetSquare1, toSquare};
-            }else if (piece2 != null && piece2.equalsIgnoreCase("p")){
-                String toSquare = String.valueOf(targetFileName2 + (rankTo+1));
-                return new String[]{targetSquare2, toSquare};
-            }
-        }
+        if (piece.equals("P") && fromRank == '2' && toRank == '4')
+            return new String[]{"" + file + '3'};
+        if (piece.equals("p") && fromRank == '7' && toRank == '5')
+            return new String[]{"" + file + '6'};
 
         return null;
     }
 
+    // =========================================================================
+    // Castling helpers
+    // =========================================================================
+
     private static String getMiddleSquare(String from, String to) {
-        char fFile = from.charAt(0);
-        char tFile = to.charAt(0);
-        char midFile = (char) ((fFile + tFile) / 2);
-        return "" + midFile + from.charAt(1);
+        return "" + (char)((from.charAt(0) + to.charAt(0)) / 2) + from.charAt(1);
     }
 
     private static void handleCastlingRook(String kFrom, String kTo, Board board, boolean undo) {
-        int rank = kFrom.charAt(1) - '0';
+        char rank    = kFrom.charAt(1);
         boolean kingSide = kTo.charAt(0) > kFrom.charAt(0);
 
         String rFrom = kingSide ? "h" + rank : "a" + rank;
         String rTo   = kingSide ? "f" + rank : "d" + rank;
 
-        String rook = board.getSquare(undo ? rTo : rFrom);
         if (undo) {
+            String rook = board.getSquare(rTo);
             makeMove(rTo, rFrom, board, rook);
         } else {
+            String rook = board.getSquare(rFrom);
             makeMove(rFrom, rTo, board, rook);
         }
     }
 
-    private static void makeMove(String from, String to, Board board, String piece) {
-        Integer[] coords = board.processFileAndRank(from);
-        String empty = ((coords[0] + coords[1]) % 2 == 0) ? "o" : "x";
-        board.setSquare(from, empty);
+    // =========================================================================
+    // Low-level move / undo  (bitboard mutations only — no FEN side toggle)
+    // =========================================================================
+
+    static void makeMove(String from, String to, Board board, String piece) {
+        board.setSquare(from, "");
         board.setSquare(to, piece);
     }
 
-    private static void undoMove(String from, String to, Board board, String piece, String captured) {
+    static void undoMove(String from, String to, Board board, String piece, String captured) {
         board.setSquare(from, piece);
-        if (captured.isEmpty()) {
-            Integer[] coords = board.processFileAndRank(to);
-            captured = ((coords[0] + coords[1]) % 2 == 0) ? "o" : "x";
-        }
-        board.setSquare(to, captured);
+        board.setSquare(to, captured.isEmpty() ? "" : captured);
     }
 
-    private static boolean inCheck(Board board, String kingPos, boolean checkingWhiteKing) {
-        ArrayList<String> opponents = checkingWhiteKing ? blackPieces : whitePieces;
-        for (String opp : opponents) {
-            for (String pos : board.getPiecePositions(opp)) {
-                Moves m = new Moves(opp, board);
-                if (identifyPlayPiece(opp, m, pos, kingPos)) return true;
+    // =========================================================================
+    // Check detection (bitboard scan — no ArrayList allocation)
+    // =========================================================================
+
+    /**
+     * Returns true if 'kingPos' is currently attacked by any opponent piece.
+     * Creates one Moves object per piece TYPE (not per piece instance).
+     */
+    public static boolean inCheck(Board board, String kingPos, boolean checkingWhiteKing) {
+        if (kingPos == null || kingPos.isEmpty()) return false;
+
+        int oppStart = checkingWhiteKing ? BLACK_START : WHITE_START;
+        int oppEnd   = checkingWhiteKing ? BLACK_END   : WHITE_END;
+
+        for (int i = oppStart; i <= oppEnd; i++) {
+            long bb = board.getPieceBitboard(i);
+            if (bb == 0) continue;
+
+            String pieceStr = Board.INDEX_TO_FEN[i];
+            Moves  m        = new Moves(pieceStr, board);
+
+            while (bb != 0) {
+                int sq = Long.numberOfTrailingZeros(bb);
+                if (identifyPlayPiece(pieceStr, m, SQUARE_NAMES[sq], kingPos)) return true;
+                bb &= bb - 1;
             }
         }
         return false;
     }
 
-    private static boolean isStaleMate(Board board){
-        String turn = board.getFENStringPosition().split(" ")[1];
-        return listOfLegalMoves(board, turn).isEmpty();
-    }
+    // =========================================================================
+    // FEN bookkeeping — owns the single side-to-move toggle per half-move
+    // =========================================================================
 
-    private static boolean isCheckmate(Board board, String turn) {
-        boolean isWhite = turn.equals("w");
-        String kingPiece = isWhite ? "K" : "k";
-        ArrayList<String> kPos = board.getPiecePositions(kingPiece);
-        if (kPos.isEmpty()) return true;
+    /**
+     * Called once per completed half-move.  Responsibilities:
+     *  1. Strip any castling rights that were forfeited by this move.
+     *  2. Set the EP square (or clear it).
+     *  3. Toggle the side-to-move exactly once.
+     *  4. Call board.commitFEN() to produce a valid FEN string.
+     *
+     * @param piece     FEN piece char that just moved (post-promotion)
+     * @param from      origin square (used to strip rook castling rights)
+     * @param epSquare  EP target square after a double pawn push, or null
+     */
+    private static void updateFEN(Board board, String piece, String from, String epSquare) {
+        // ── Castling rights ───────────────────────────────────────────────────
+        String rights = board.getCastlingRights();
 
-        if (!inCheck(board, kPos.get(0), isWhite)) return false;
-
-        ArrayList<String> myPieces = isWhite ? whitePieces : blackPieces;
-        char[] files = "abcdefgh".toCharArray();
-
-        for (String p : myPieces) {
-            for (String from : board.getPiecePositions(p)) {
-                Moves m = new Moves(p, board);
-                for (char f : files) {
-                    for (int r = 1; r <= 8; r++) {
-                        String to = "" + f + r;
-                        if (from.equals(to)) continue;
-
-                        if (identifyPlayPiece(p, m, from, to)) {
-                            // Valid Capture Check
-                            String target = board.getSquare(to);
-                            boolean targetOccupied = !target.equals("o") && !target.equals("x") && !target.isEmpty();
-                            if (targetOccupied && (isWhite == Character.isUpperCase(target.charAt(0)))) continue;
-
-                            String captured = board.getSquare(to);
-                            makeMove(from, to, board, p);
-                            String newKingPos = p.equalsIgnoreCase("k") ? to : kPos.get(0);
-                            boolean safe = !inCheck(board, newKingPos, isWhite);
-                            undoMove(from, to, board, p, captured);
-
-                            if (safe) return false;
-                        }
-                    }
+        if (!rights.equals("-")) {
+            switch (piece) {
+                case "K" -> rights = rights.replace("K","").replace("Q","");
+                case "k" -> rights = rights.replace("k","").replace("q","");
+                case "R" -> {
+                    if (from.equals("h1"))      rights = rights.replace("K","");
+                    else if (from.equals("a1")) rights = rights.replace("Q","");
+                }
+                case "r" -> {
+                    if (from.equals("h8"))      rights = rights.replace("k","");
+                    else if (from.equals("a8")) rights = rights.replace("q","");
                 }
             }
+            if (rights.isEmpty()) rights = "-";
         }
-        return true;
+
+        // ── Write back fields, toggle side-to-move, commit ───────────────────
+        board.setFENFields(rights, epSquare != null ? epSquare : "-");
+        board.toggleSideToMove();   // exactly once per half-move
+        board.commitFEN();
     }
 
-    private static void updateFEN(Board board, String piece, String from, String targetSquare, String toSquare) {
-        board.setFENStringPosition();
-        String rawFen = board.getFENStringPosition();
-        String[] parts = rawFen.split(" ");
-        String rights = parts[2];
+    // =========================================================================
+    // Early-exit legal-move existence check
+    // =========================================================================
 
-        if (piece.equals("K")) rights = rights.replace("K", "").replace("Q", "");
-        if (piece.equals("k")) rights = rights.replace("k", "").replace("q", "");
-        if (piece.equals("R")) {
-            if (from.equals("h1")) rights = rights.replace("K", "");
-            if (from.equals("a1")) rights = rights.replace("Q", "");
-        }
-        if (piece.equals("r")) {
-            if (from.equals("h8")) rights = rights.replace("k", "");
-            if (from.equals("a8")) rights = rights.replace("q", "");
-        }
-        if (rights.isEmpty()) rights = "-";
+    /**
+     * Returns true if 'player' ("w"/"b") has at least one legal move.
+     * Stops at the first legal move found — does not build the full list.
+     */
+    private static boolean hasLegalMove(Board board, String player) {
+        boolean isWhite = player.equals("w");
+        int start = isWhite ? WHITE_START : BLACK_START;
+        int end   = isWhite ? WHITE_END   : BLACK_END;
 
-        if (targetSquare != null){
-            parts[3] = toSquare;
-        }
+        for (int i = start; i <= end; i++) {
+            long bb = board.getPieceBitboard(i);
+            if (bb == 0) continue;
+            String pieceStr = Board.INDEX_TO_FEN[i];
 
-        String newFen = parts[0] + " " + parts[1] + " " + rights + " " + parts[3] + " " + parts[4] + " " + parts[5];
-        board.setRawFEN(newFen);
+            while (bb != 0) {
+                int    sq   = Long.numberOfTrailingZeros(bb);
+                String from = SQUARE_NAMES[sq];
+                Moves  m    = new Moves(pieceStr, board);
+
+                for (String to : ALL_SQUARES) {
+                    if (from.equals(to)) continue;
+                    if (!identifyPlayPiece(pieceStr, m, from, to)) continue;
+
+                    String t = board.getSquare(to);
+                    if (!t.isEmpty() && (isWhite == Character.isUpperCase(t.charAt(0)))) continue;
+
+                    boolean tryingToCastle = pieceStr.equalsIgnoreCase("k")
+                            && Math.abs(from.charAt(0) - to.charAt(0)) == 2;
+                    if (tryingToCastle) {
+                        String mid = getMiddleSquare(from, to);
+                        if (inCheck(board, from, isWhite) || inCheck(board, mid, isWhite)) continue;
+                    }
+
+                    String captured = board.getSquare(to);
+                    makeMove(from, to, board, pieceStr);
+                    if (tryingToCastle) handleCastlingRook(from, to, board, false);
+
+                    String  kPos = findKingPos(board, isWhite, pieceStr.equalsIgnoreCase("k") ? to : null);
+                    boolean safe = !kPos.isEmpty() && !inCheck(board, kPos, isWhite);
+
+                    undoMove(from, to, board, pieceStr, captured);
+                    if (tryingToCastle) handleCastlingRook(from, to, board, true);
+
+                    if (safe) return true;
+                }
+                bb &= bb - 1;
+            }
+        }
+        return false;
     }
 
-    public static ArrayList<String> generateAllPossibleMoves(Board board, String from, String piece) {
+    // =========================================================================
+    // Move generation  (public — used by EngineCalculations)
+    // =========================================================================
+
+    /**
+     * Returns all legal destination squares for 'piece' on 'from'.
+     * The Moves object is created once and reused across all 64 candidates.
+     */
+    public static ArrayList<String> generateAllPossibleMoves(Board board,
+                                                             String from,
+                                                             String piece) {
         ArrayList<String> valid = new ArrayList<>();
-        char[] files = "abcdefgh".toCharArray();
-        for (char f : files) {
-            for (int r = 1; r <= 8; r++) {
-                String to = "" + f + r;
-                if (!from.equals(to)) {
-                    Moves m = new Moves(piece, board);
-                    if (identifyPlayPiece(piece, m, from, to)) {
-                        String t = board.getSquare(to);
-                        boolean occ = !t.equals("o") && !t.equals("x") && !t.isEmpty();
-                        if (occ && (Character.isUpperCase(piece.charAt(0)) == Character.isUpperCase(t.charAt(0)))) continue;
+        boolean isWhite = Character.isUpperCase(piece.charAt(0));
+        Moves   m       = new Moves(piece, board);
 
-                        // Check if move exposes king to check
-                        String captured = board.getSquare(to);
-                        makeMove(from, to, board, piece);
-                        String turn = board.getFENStringPosition().split(" ")[1];
-                        boolean isWhite = turn.equals("w");
-                        String kPiece = isWhite ? "K" : "k";
-                        // Find king (might have moved)
-                        String kPos = board.getPiecePositions(kPiece).isEmpty() ? "" : board.getPiecePositions(kPiece).get(0);
-                        boolean safe = !inCheck(board, kPos, isWhite);
+        for (String to : ALL_SQUARES) {
+            if (from.equals(to)) continue;
+            if (!identifyPlayPiece(piece, m, from, to)) continue;
 
-                        // Special Castling check logic
-                        if (piece.equalsIgnoreCase("k") && Math.abs(from.charAt(0) - to.charAt(0)) == 2) {
-                            String mid = getMiddleSquare(from, to);
-                            if (inCheck(board, from, isWhite) || inCheck(board, mid, isWhite)) safe = false;
-                        }
+            String t = board.getSquare(to);
+            if (!t.isEmpty() && (isWhite == Character.isUpperCase(t.charAt(0)))) continue;
 
-                        undoMove(from, to, board, piece, captured);
-
-                        if (safe) valid.add(to);
-                    }
-                }
+            boolean tryingToCastle = piece.equalsIgnoreCase("k")
+                    && Math.abs(from.charAt(0) - to.charAt(0)) == 2;
+            if (tryingToCastle) {
+                String mid = getMiddleSquare(from, to);
+                if (inCheck(board, from, isWhite) || inCheck(board, mid, isWhite)) continue;
             }
+
+            String captured = board.getSquare(to);
+            makeMove(from, to, board, piece);
+            if (tryingToCastle) handleCastlingRook(from, to, board, false);
+
+            String  kPos = findKingPos(board, isWhite, piece.equalsIgnoreCase("k") ? to : null);
+            boolean safe = !kPos.isEmpty() && !inCheck(board, kPos, isWhite);
+
+            undoMove(from, to, board, piece, captured);
+            if (tryingToCastle) handleCastlingRook(from, to, board, true);
+
+            if (safe) valid.add(to);
         }
         return valid;
     }
 
-    private static List<String> listOfLegalMoves(Board board, String player) {
-        List<String> moves = new ArrayList<>();
-        boolean isWhiteTurn = player.equals("w");
+    /**
+     * Returns all legal "from-to" move strings for 'player'.
+     * Used by the engine and for stalemate/checkmate detection.
+     */
+    public static List<String> listOfLegalMoves(Board board, String player) {
+        List<String> moves  = new ArrayList<>();
+        boolean isWhite     = player.equals("w");
+        int start = isWhite ? WHITE_START : BLACK_START;
+        int end   = isWhite ? WHITE_END   : BLACK_END;
 
-        for (int r = 0; r < 8; r++) {
-            for (int c = 0; c < 8; c++) {
-                String piece = board.getCleanSquares()[r][c];
+        for (int i = start; i <= end; i++) {
+            long bb = board.getPieceBitboard(i);
+            if (bb == 0) continue;
+            String pieceStr = Board.INDEX_TO_FEN[i];
 
-                if (piece == null || piece.trim().isEmpty()) continue;
-                boolean isWhitePiece = Character.isUpperCase(piece.charAt(0));
-                if (isWhitePiece != isWhiteTurn) continue;
-
-                String fromSquare = String.format("%s%d","abcdefgh".charAt(c), 7-r+1);
-                List<String> rawMoves = ChessGame.generateAllPossibleMoves(board,fromSquare,piece);
-
-                for (String moveStr : rawMoves) {
-                    moves.add(fromSquare+"-"+moveStr);
-                }
+            while (bb != 0) {
+                int    sq   = Long.numberOfTrailingZeros(bb);
+                String from = SQUARE_NAMES[sq];
+                for (String dest : generateAllPossibleMoves(board, from, pieceStr))
+                    moves.add(from + "-" + dest);
+                bb &= bb - 1;
             }
         }
         return moves;
