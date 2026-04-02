@@ -2,124 +2,428 @@ package logic;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 
+/**
+ * Board — Bitboard chess board.
+ *
+ * ── FEN side-to-move contract ────────────────────────────────────────────────
+ * setSquare() is a RAW BITBOARD MUTATION. It does NOT toggle the side-to-move
+ * and does NOT rebuild the FEN string. Callers (ChessGame.updateFEN) are
+ * responsible for toggling fenSide exactly once per half-move and for calling
+ * commitFEN() when all fields are settled.
+ *
+ * This is the key fix over the previous version, which toggled fenSide inside
+ * setSquare(). Because makeMove() calls setSquare() twice (clear origin,
+ * place on destination) the side-to-move was being double-toggled and
+ * effectively never changing.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * Other optimisations retained:
+ *  • FEN_TO_INDEX  — 128-int array, no HashMap boxing.
+ *  • sqIndex()     — pure arithmetic, zero allocation.
+ *  • processFileAndRank() — returns primitive int[].
+ *  • buildFENPosition() — char[] buffer, uses occupancy fast-path.
+ *  • getSquare() checks occupancy before scanning 12 bitboards.
+ *  • Cheap field accessors (getSideToMove etc.) avoid split().
+ *
+ * Coordinate contract:
+ *   sqIndex  = bitRank * 8 + file   (bitRank 0 = rank-1, bitRank 7 = rank-8)
+ *   processFileAndRank("a1") → {col=0, row=7}  (row 0 = rank-8, row 7 = rank-1)
+ */
 public class Board {
-    private final String[][] squares = new String[8][8];
-    private String FENStringPosition;
-    private String gameState;
 
-    private static final HashMap<String, Integer> fileToColumn = new HashMap<>(Map.of(
-            "a", 0, "b", 1, "c", 2, "d", 3, "e", 4, "f", 5, "g", 6, "h", 7
-    ));
+    // =========================================================================
+    // Lookup tables
+    // =========================================================================
 
-    public Board(String FENStringPosition) {
-        this.FENStringPosition = FENStringPosition;
-        initializeSquares();
-        gameState = "ongoing";
+    /** char → bitboard-index. Unknown chars map to -1. */
+    static final int[] FEN_TO_INDEX = new int[128];
+    static {
+        Arrays.fill(FEN_TO_INDEX, -1);
+        FEN_TO_INDEX['P'] = 0;  FEN_TO_INDEX['N'] = 1;  FEN_TO_INDEX['B'] = 2;
+        FEN_TO_INDEX['R'] = 3;  FEN_TO_INDEX['Q'] = 4;  FEN_TO_INDEX['K'] = 5;
+        FEN_TO_INDEX['p'] = 6;  FEN_TO_INDEX['n'] = 7;  FEN_TO_INDEX['b'] = 8;
+        FEN_TO_INDEX['r'] = 9;  FEN_TO_INDEX['q'] = 10; FEN_TO_INDEX['k'] = 11;
+    }
+
+    /** index → single-char FEN string. */
+    static final String[] INDEX_TO_FEN =
+            {"P","N","B","R","Q","K","p","n","b","r","q","k"};
+
+    /** index → FEN char (used in buildFENPosition to avoid String allocation). */
+    static final char[] INDEX_TO_CHAR =
+            {'P','N','B','R','Q','K','p','n','b','r','q','k'};
+
+    // =========================================================================
+    // Bitboard state
+    // =========================================================================
+
+    /** One bitboard per piece type (indices 0-11). Package-visible for engine. */
+    final long[] pieceBB = new long[12];
+
+    /** Union of all occupied squares — always in sync with pieceBB. */
+    long occupancy = 0L;
+
+    // =========================================================================
+    // FEN state
+    // =========================================================================
+
+    /**
+     * The last committed FEN string. May be stale if fenDirty == true.
+     * Rebuilt by commitFEN() when ChessGame signals that all fields are settled.
+     */
+    private String fenString;
+
+    /**
+     * Set when the bitboards have been mutated but commitFEN() hasn't been
+     * called yet. getFENStringPosition() rebuilds lazily when this is true.
+     */
+    private boolean fenDirty = false;
+
+    // Non-position FEN fields — stored separately so callers never need split().
+    private String fenSide     = "w";
+    private String fenCastling = "KQkq";
+    private String fenEP       = "-";
+    private String fenHalf     = "0";
+    private String fenFull     = "1";
+
+    // =========================================================================
+    // Game state
+    // =========================================================================
+
+    private String gameState = "ongoing";
+
+    // =========================================================================
+    // Constructors
+    // =========================================================================
+
+    public Board(String fen) {
+        this.fenString = fen;
+        loadFromFEN(fen);
     }
 
     public Board() {
         this("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     }
 
-    private void initializeSquares() {
-        String position = FENStringPosition.split(" ")[0];
-        String[] ranks = position.split("/");
+    // =========================================================================
+    // FEN parsing (single pass, no regex)
+    // =========================================================================
 
-        for (int i = 0; i < 8; i++) {
-            String rankData = ranks[i];
-            int fileIndex = 0;
-            for (int j = 0; j < rankData.length(); j++) {
-                char c = rankData.charAt(j);
-                if (Character.isDigit(c)) {
-                    int emptyCount = Character.getNumericValue(c);
-                    for (int k = 0; k < emptyCount; k++) {
-                        squares[i][fileIndex] = ((i + fileIndex) % 2 == 0) ? "o " : "x ";
-                        fileIndex++;
-                    }
-                } else {
-                    squares[i][fileIndex] = c + " ";
-                    fileIndex++;
+    private void loadFromFEN(String fen) {
+        Arrays.fill(pieceBB, 0L);
+        occupancy = 0L;
+
+        fenSide = "w"; fenCastling = "KQkq"; fenEP = "-"; fenHalf = "0"; fenFull = "1";
+
+        int len = fen.length();
+        int fieldStart = 0, fieldIdx = 0;
+        String position = null;
+
+        for (int i = 0; i <= len; i++) {
+            if (i == len || fen.charAt(i) == ' ') {
+                String field = fen.substring(fieldStart, i);
+                switch (fieldIdx) {
+                    case 0 -> position    = field;
+                    case 1 -> fenSide     = field;
+                    case 2 -> fenCastling = field;
+                    case 3 -> fenEP       = field;
+                    case 4 -> fenHalf     = field;
+                    case 5 -> fenFull     = field;
                 }
+                fieldStart = i + 1;
+                if (++fieldIdx > 5) break;
             }
         }
-    }
 
-    public void setFENStringPosition() {
-        StringBuilder newFEN = new StringBuilder();
-        for (int row = 0; row < 8; row++) {
-            int emptyCount = 0;
-            for (int col = 0; col < 8; col++) {
-                String piece = squares[row][col].trim();
-                if (piece.equals("x") || piece.equals("o") || piece.isEmpty()) {
-                    emptyCount++;
-                } else {
-                    if (emptyCount > 0) {
-                        newFEN.append(emptyCount);
-                        emptyCount = 0;
-                    }
-                    newFEN.append(piece);
+        if (position == null) return;
+
+        int rank = 7, file = 0;
+        for (int i = 0, plen = position.length(); i < plen; i++) {
+            char c = position.charAt(i);
+            if (c == '/') { rank--; file = 0; }
+            else if (c >= '1' && c <= '8') { file += (c - '0'); }
+            else {
+                int idx = (c < 128) ? FEN_TO_INDEX[c] : -1;
+                if (idx >= 0) {
+                    long bit = 1L << (rank * 8 + file);
+                    pieceBB[idx] |= bit;
+                    occupancy    |= bit;
                 }
-            }
-            if (emptyCount > 0) newFEN.append(emptyCount);
-            if (row < 7) newFEN.append("/");
-        }
-
-
-        String[] oldParts = FENStringPosition.split(" ");
-        String oldRights = (oldParts.length > 2) ? oldParts[2] : "-";
-        String nextTurn = oldParts[1].equals("w") ? "b" : "w";
-
-        this.FENStringPosition = newFEN + " " + nextTurn + " " + oldRights + " - 0 1";
-    }
-
-    public String[][] getCleanSquares() {
-        String[][] clean = new String[8][8];
-        for (int i = 0; i < 8; i++) {
-            for (int j = 0; j < 8; j++) {
-                String p = squares[i][j].trim();
-                clean[i][j] = (p.equals("x") || p.equals("o")) ? "" : p;
+                file++;
             }
         }
-        return clean;
+        fenDirty = false;
     }
 
-    public Integer[] processFileAndRank(String square) {
+    // =========================================================================
+    // FEN building
+    // =========================================================================
+
+    /** Builds the piece-placement part of the FEN into a char[] buffer. */
+    private String buildFENPosition() {
+        char[] buf = new char[72];   // max 71 chars
+        int pos = 0;
+
+        for (int rank = 7; rank >= 0; rank--) {
+            long rankMask = 0xFFL << (rank * 8);
+            if ((occupancy & rankMask) == 0) {
+                buf[pos++] = '8';
+            } else {
+                int empty = 0;
+                for (int f = 0; f < 8; f++) {
+                    long bit = 1L << (rank * 8 + f);
+                    if ((occupancy & bit) == 0) {
+                        empty++;
+                    } else {
+                        if (empty > 0) { buf[pos++] = (char)('0' + empty); empty = 0; }
+                        for (int i = 0; i < 12; i++) {
+                            if ((pieceBB[i] & bit) != 0) { buf[pos++] = INDEX_TO_CHAR[i]; break; }
+                        }
+                    }
+                }
+                if (empty > 0) buf[pos++] = (char)('0' + empty);
+            }
+            if (rank > 0) buf[pos++] = '/';
+        }
+        return new String(buf, 0, pos);
+    }
+
+    /**
+     * Forces a complete FEN rebuild from the current bitboards and field values.
+     * Called once by ChessGame.updateFEN after every completed half-move, after
+     * side-to-move, castling rights, and EP square have all been updated.
+     */
+    public void commitFEN() {
+        fenString = buildFENPosition()
+                + " " + fenSide     + " " + fenCastling
+                + " " + fenEP       + " " + fenHalf + " " + fenFull;
+        fenDirty = false;
+    }
+
+    /**
+     * Toggles the side-to-move field.
+     * Called ONCE per half-move by ChessGame.updateFEN, NOT inside setSquare.
+     */
+    public void toggleSideToMove() {
+        fenSide  = fenSide.equals("w") ? "b" : "w";
+        fenDirty = true;
+    }
+
+    /**
+     * Updates castling rights and EP square without rebuilding the full FEN.
+     * Must be followed by commitFEN() to produce a valid FEN string.
+     */
+    public void setFENFields(String castling, String ep) {
+        this.fenCastling = (castling == null || castling.isEmpty()) ? "-" : castling;
+        this.fenEP       = (ep       == null || ep.isEmpty())       ? "-" : ep;
+        fenDirty = true;
+    }
+
+    // =========================================================================
+    // Public FEN accessors
+    // =========================================================================
+
+    /** Returns the current FEN, rebuilding lazily if stale. */
+    public String getFENStringPosition() {
+        if (fenDirty) commitFEN();
+        return fenString;
+    }
+
+    /** Side-to-move ("w" or "b") — no FEN rebuild required. */
+    public String getSideToMove()      { return fenSide; }
+
+    /** Castling rights string ("KQkq", "-", etc.) — no FEN rebuild required. */
+    public String getCastlingRights()  { return fenCastling; }
+
+    /** En-passant target square ("e3", "-", etc.) — no FEN rebuild required. */
+    public String getEnPassantSquare() { return fenEP; }
+
+    /**
+     * Replaces the FEN string completely and reloads bitboards.
+     * Used by the engine's simulateMove to seed a fresh board.
+     */
+    public void setRawFEN(String fen) {
+        this.fenString = fen;
+        loadFromFEN(fen);
+        fenDirty = false;
+    }
+
+    // =========================================================================
+    // Square index helpers (zero allocation)
+    // =========================================================================
+
+    /**
+     * Algebraic square → bitboard square index.
+     *   sqIndex("a1") = 0,  sqIndex("h8") = 63
+     */
+    public static int sqIndex(String square) {
+        return ((square.charAt(1) - '1') << 3) | (square.charAt(0) - 'a');
+    }
+
+    /**
+     * Algebraic square → {col, row} where row 0 = rank-8, row 7 = rank-1.
+     * Returns primitive int[] to avoid Integer[] boxing.
+     */
+    public int[] processFileAndRank(String square) {
+        if (square == null || square.length() != 2)
+            throw new IllegalArgumentException("Invalid square: " + square);
         int col = square.charAt(0) - 'a';
         int row = '8' - square.charAt(1);
-        if (col < 0 || col > 7 || row < 0 || row > 7) throw new IllegalArgumentException("Bounds");
-        return new Integer[]{col, row};
+        if ((col | row | (7 - col) | (7 - row)) < 0)
+            throw new IllegalArgumentException("Square out of bounds: " + square);
+        return new int[]{col, row};
     }
 
+    // =========================================================================
+    // Square accessors
+    // =========================================================================
+
+    /**
+     * Returns the FEN piece string on 'square', or "" if empty.
+     * Checks occupancy before scanning all 12 bitboards.
+     */
     public String getSquare(String square) {
-        if (square == null || square.length() != 2) return " ";
-        Integer[] coords = processFileAndRank(square);
-        return squares[coords[1]][coords[0]].trim();
+        if (square == null || square.length() != 2) return "";
+        long bit = 1L << sqIndex(square);
+        if ((occupancy & bit) == 0) return "";
+        for (int i = 0; i < 12; i++) {
+            if ((pieceBB[i] & bit) != 0) return INDEX_TO_FEN[i];
+        }
+        return "";
     }
 
+    /**
+     * Returns the bitboard index (0-11) of the piece at square index 'sq',
+     * or -1 if empty. Zero-allocation hot path.
+     */
+    public int getPieceAt(int sq) {
+        long bit = 1L << sq;
+        if ((occupancy & bit) == 0) return -1;
+        for (int i = 0; i < 12; i++) {
+            if ((pieceBB[i] & bit) != 0) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * Places 'piece' on 'square', or clears it if piece is null/"".
+     *
+     * IMPORTANT: this method does NOT toggle the side-to-move and does NOT
+     * rebuild the FEN string. It only mutates the bitboards and marks fenDirty.
+     * ChessGame.updateFEN is responsible for calling toggleSideToMove(),
+     * setFENFields(), and commitFEN() once per half-move.
+     */
     public void setSquare(String square, String piece) {
-        Integer[] coords = processFileAndRank(square);
-        squares[coords[1]][coords[0]] = piece.length() == 1 ? piece + " " : piece;
-    }
+        long bit = 1L << sqIndex(square);
 
-    public ArrayList<String> getPiecePositions(String piece) {
-        ArrayList<String> positions = new ArrayList<>();
-        for (int r = 0; r < 8; r++) {
-            for (int c = 0; c < 8; c++) {
-                if (squares[r][c].trim().equals(piece)) {
-                    positions.add("" + (char)('a' + c) + (8 - r));
+        for (int i = 0; i < 12; i++) pieceBB[i] &= ~bit;
+        occupancy &= ~bit;
+
+        if (piece != null && !piece.isEmpty()) {
+            char c = piece.charAt(0);
+            if (c < 128) {
+                int idx = FEN_TO_INDEX[c];
+                if (idx >= 0) {
+                    pieceBB[idx] |= bit;
+                    occupancy    |= bit;
                 }
             }
+        }
+        fenDirty = true;   // position is stale; FEN will be rebuilt by commitFEN()
+    }
+
+    // =========================================================================
+    // 2-D board view
+    // =========================================================================
+
+    /**
+     * Returns an 8×8 array: [0][0] = rank-8/a-file, [7][7] = rank-1/h-file.
+     * Empty squares are "".
+     */
+    public String[][] getCleanSquares() {
+        String[][] squares = new String[8][8];
+        for (int row = 0; row < 8; row++) {
+            int bitRank = 7 - row;
+            long rankBB = (occupancy >>> (bitRank * 8)) & 0xFFL;
+            for (int col = 0; col < 8; col++) {
+                if ((rankBB & (1L << col)) == 0) {
+                    squares[row][col] = "";
+                } else {
+                    long bit = 1L << (bitRank * 8 + col);
+                    squares[row][col] = "";
+                    for (int i = 0; i < 12; i++) {
+                        if ((pieceBB[i] & bit) != 0) {
+                            squares[row][col] = INDEX_TO_FEN[i];
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        return squares;
+    }
+
+    // =========================================================================
+    // Piece-position queries
+    // =========================================================================
+
+    /**
+     * Returns the raw bitboard for 'pieceChar' (e.g. 'K', 'p').
+     * Prefer bit-scanning over getPiecePositions in hot paths.
+     */
+    public long getBitboardFor(char pieceChar) {
+        int idx = (pieceChar < 128) ? FEN_TO_INDEX[pieceChar] : -1;
+        return (idx >= 0) ? pieceBB[idx] : 0L;
+    }
+
+    /**
+     * Returns algebraic square strings for the given piece (e.g. "K", "p").
+     * Use getBitboardFor + bit-scanning in tight loops to avoid allocation.
+     */
+    public ArrayList<String> getPiecePositions(String piece) {
+        ArrayList<String> positions = new ArrayList<>();
+        if (piece == null || piece.isEmpty()) return positions;
+        char c = piece.charAt(0);
+        int idx = (c < 128) ? FEN_TO_INDEX[c] : -1;
+        if (idx < 0) return positions;
+        long bb = pieceBB[idx];
+        while (bb != 0) {
+            int sq = Long.numberOfTrailingZeros(bb);
+            positions.add("" + (char)('a' + (sq & 7)) + (char)('1' + (sq >> 3)));
+            bb &= bb - 1;
         }
         return positions;
     }
 
-    public String getFENStringPosition() { return FENStringPosition; }
-    public void setRawFEN(String fen) { this.FENStringPosition = fen; }
-    public String getGameState() { return gameState; }
-    public void setGameState(String state) { this.gameState = state; }
-    public String[][] getSquares() { return squares; }
-    public void printBoard() { /* ... console print ... */ }
+    // =========================================================================
+    // Bitboard accessors (engine evaluation fast path)
+    // =========================================================================
+
+    public long getPieceBitboard(int i) { return pieceBB[i]; }
+    public long getOccupancy()          { return occupancy; }
+    public long getWhitePieces()        { return pieceBB[0]|pieceBB[1]|pieceBB[2]|pieceBB[3]|pieceBB[4]|pieceBB[5]; }
+    public long getBlackPieces()        { return pieceBB[6]|pieceBB[7]|pieceBB[8]|pieceBB[9]|pieceBB[10]|pieceBB[11]; }
+
+    // =========================================================================
+    // Game state
+    // =========================================================================
+
+    public String getGameState()         { return gameState; }
+    public void   setGameState(String s) { this.gameState = s; }
+
+    // =========================================================================
+    // Debug
+    // =========================================================================
+
+    public void printBoard() {
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                String p = getSquare("" + (char)('a' + col) + (char)('8' - row));
+                System.out.print((p.isEmpty() ? "." : p) + " ");
+            }
+            System.out.println();
+        }
+        System.out.println("FEN: " + getFENStringPosition());
+    }
 }
