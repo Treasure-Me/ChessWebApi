@@ -21,8 +21,8 @@ public class UCIHandler {
 
             switch (command) {
                 case "uci":
-                    System.out.println("id name TreasureMeEngine");
-                    System.out.println("id author YourName");
+                    System.out.println("id name DevBot");
+                    System.out.println("id author Gugulakhe Makamo");
                     System.out.println("uciok");
                     break;
 

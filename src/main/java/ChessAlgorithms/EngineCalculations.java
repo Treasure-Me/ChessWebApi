@@ -262,8 +262,7 @@ public class EngineCalculations {
                 bestMove  = move;
                 prevScore = score;
             }
-            System.out.printf("Depth %d | Best: %s | Score: %d | Time: %dms%n",
-                    depth, bestMove, prevScore, elapsed());
+            System.out.printf("info depth %d score cp %d time %d%n", depth, prevScore, elapsed());
         }
         return bestMove;
     }
