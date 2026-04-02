@@ -718,4 +718,18 @@ public class EngineCalculations {
     private static long elapsed() {
         return System.currentTimeMillis() - searchStartTime;
     }
+
+    public static void clearTT() {
+        Arrays.fill(ttKey, 0L);
+        Arrays.fill(ttDepth, 0);
+        Arrays.fill(ttScore, 0);
+        Arrays.fill(ttFlag, (byte)0);
+        Arrays.fill(ttBestMove, null);
+        clearKillers();
+        Arrays.fill(historyTable, 0);
+    }
+
+    public static void stopSearch() {
+        timeUp = true;
+    }
 }
