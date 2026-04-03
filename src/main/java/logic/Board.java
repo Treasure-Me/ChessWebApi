@@ -74,6 +74,20 @@ public class Board {
         loadFromFEN(fen);
     }
 
+    // Add this inside Board.java
+    public Board(Board other) {
+        System.arraycopy(other.pieceBB, 0, this.pieceBB, 0, 12);
+        this.occupancy = other.occupancy;
+        this.fenSide = other.fenSide;
+        this.fenCastling = other.fenCastling;
+        this.fenEP = other.fenEP;
+        this.fenHalf = other.fenHalf;
+        this.fenFull = other.fenFull;
+        this.fenDirty = other.fenDirty;
+        this.fenString = other.fenString;
+        this.gameState = other.gameState;
+    }
+
     public Board() {
         this("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     }

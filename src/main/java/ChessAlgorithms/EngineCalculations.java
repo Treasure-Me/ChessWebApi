@@ -700,7 +700,7 @@ public class EngineCalculations {
      * Handles the "e7-e8=Q" suffix format produced by listOfLegalMoves.
      */
     private static Board simulateMove(Board original, String move) {
-        Board nb    = new Board(original.getFENStringPosition());
+        Board nb = new Board(original);
         String promo = movePromo(move);
         // Rebuild the move string without the suffix — playGame accepts "e7-e8"
         // with a separate promotionPiece parameter.
